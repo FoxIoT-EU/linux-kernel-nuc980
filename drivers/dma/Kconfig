@@ -510,8 +510,10 @@ config NUC980_DMA
         bool "NUC980 DMA support"
         depends on ARCH_NUC980
         select DMA_ENGINE
+        select DMA_VIRTUAL_CHANNELS
+        select DMA_OF
         help
-          Enable support for the NUC980 DMA controller.
+          Enable support for the NUC980 PDMA controller.
 
 config NBPFAXI_DMA
 	tristate "Renesas Type-AXI NBPF DMA support"

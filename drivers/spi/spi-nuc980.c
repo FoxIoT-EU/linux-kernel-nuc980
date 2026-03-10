@@ -24,6 +24,8 @@
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/spi/spi.h>
+#include <linux/dmaengine.h>
+#include <linux/dma-mapping.h>
 
 #define REG_CTL               0x00
 #define   CTL_SPIEN           (0x01 << 0)
@@ -41,7 +43,10 @@
 #define   FIFOCTL_RXRST       (0x01 << 0)
 #define   FIFOCTL_TXRST       (0x01 << 1)
 #define   FIFOCTL_RXTHIEN     (0x01 << 2)
+#define   FIFOCTL_RXFBCLR     (0x01 << 8)
+#define   FIFOCTL_TXFBCLR     (0x01 << 9)
 #define REG_STATUS            0x14
+#define   STATUS_BUSY         (0x01 << 0)
 #define   STATUS_RXEMPTY      (0x01 << 8)
 #define   STATUS_ENSTS        (0x01 << 15)
 #define   STATUS_TXRXRST      (0x01 << 23)
@@ -57,9 +62,13 @@
 #define NUC980_SPI_RX_TIMEOUT_US     10000
 /* Timeout for IRQ-driven completion */
 #define NUC980_SPI_XFER_TIMEOUT_MS   2000
+#define NUC980_SPI_DMA_MIN_BYTES     128
+#define   PDMACTL_TXPDMAEN          BIT(0)
+#define   PDMACTL_RXPDMAEN          BIT(1)
 
 struct nuc980_spi {
 	struct spi_controller *master;
+	struct device         *dev;
 	void __iomem          *base;
 	struct clk            *pclk;
 	struct clk            *eclk;
@@ -70,6 +79,10 @@ struct nuc980_spi {
 	int                   rx_len;
 	int                   tx_len;
 	int                   threshold;
+	struct dma_chan        *tx_chan;
+	struct dma_chan        *rx_chan;
+	struct completion     dma_done;
+	dma_addr_t            phys_addr;
 };
 
 static void nuc980_spi_cs_assert(struct spi_device *spi)
@@ -90,6 +103,169 @@ static void nuc980_spi_cs_deassert(struct spi_device *spi)
 		gpiod_set_value(spi_get_csgpiod(spi, 0), 0);
 	else
 		writel(0x00, nspi->base + REG_SSCTL);
+}
+
+static void nuc980_spi_dma_callback(void *data)
+{
+	struct nuc980_spi *nspi = data;
+
+	complete(&nspi->dma_done);
+}
+
+static int nuc980_spi_dma_transfer(struct nuc980_spi *nspi,
+				   struct spi_transfer *t)
+{
+	struct device *dev = nspi->dev;
+	struct dma_slave_config slave_conf = {};
+	struct dma_async_tx_descriptor *tx_desc = NULL, *rx_desc = NULL;
+	struct scatterlist tx_sg, rx_sg;
+	dma_addr_t tx_dma = 0, rx_dma = 0;
+	unsigned long timeout;
+	u32 pdmactl = 0;
+	u32 status;
+	int ret = 0;
+
+	/*
+	 * Follow Nuvoton reference: only set up DMA channels that are
+	 * actually needed. TX-only writes don't need RX DMA. This avoids
+	 * mapping the same buffer in both directions (cache coherency
+	 * issue on ARM926EJ-S) and prevents RX DMA from writing garbage
+	 * back into the TX buffer.
+	 */
+
+	/* --- RX DMA (only if we have an rx_buf) --- */
+	if (t->rx_buf) {
+		slave_conf.direction = DMA_DEV_TO_MEM;
+		slave_conf.src_addr = nspi->phys_addr + REG_RX;
+		slave_conf.src_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+		dmaengine_slave_config(nspi->rx_chan, &slave_conf);
+
+		rx_dma = dma_map_single(dev, t->rx_buf, t->len,
+					DMA_FROM_DEVICE);
+		if (dma_mapping_error(dev, rx_dma))
+			return -ENOMEM;
+
+		sg_init_one(&rx_sg, t->rx_buf, t->len);
+		sg_dma_address(&rx_sg) = rx_dma;
+		sg_dma_len(&rx_sg) = t->len;
+		rx_desc = dmaengine_prep_slave_sg(nspi->rx_chan, &rx_sg, 1,
+						  DMA_DEV_TO_MEM,
+						  DMA_PREP_INTERRUPT);
+		if (!rx_desc) {
+			ret = -EINVAL;
+			goto unmap;
+		}
+
+		pdmactl |= PDMACTL_RXPDMAEN;
+	}
+
+	/* --- TX DMA (always needed — SPI is full-duplex) --- */
+	memset(&slave_conf, 0, sizeof(slave_conf));
+	slave_conf.direction = DMA_MEM_TO_DEV;
+	slave_conf.dst_addr = nspi->phys_addr + REG_TX;
+	slave_conf.dst_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+	dmaengine_slave_config(nspi->tx_chan, &slave_conf);
+
+	if (t->tx_buf) {
+		tx_dma = dma_map_single(dev, (void *)t->tx_buf, t->len,
+					DMA_TO_DEVICE);
+		if (dma_mapping_error(dev, tx_dma)) {
+			ret = -ENOMEM;
+			goto unmap;
+		}
+		sg_init_one(&tx_sg, (void *)t->tx_buf, t->len);
+	} else {
+		/* RX-only: send zeros — use rx_buf as dummy source.
+		 * Buffer content doesn't matter, SPI slave ignores TX. */
+		tx_dma = dma_map_single(dev, t->rx_buf, t->len,
+					DMA_TO_DEVICE);
+		if (dma_mapping_error(dev, tx_dma)) {
+			ret = -ENOMEM;
+			goto unmap;
+		}
+		sg_init_one(&tx_sg, t->rx_buf, t->len);
+	}
+	sg_dma_address(&tx_sg) = tx_dma;
+	sg_dma_len(&tx_sg) = t->len;
+	tx_desc = dmaengine_prep_slave_sg(nspi->tx_chan, &tx_sg, 1,
+					  DMA_MEM_TO_DEV,
+					  DMA_PREP_INTERRUPT);
+	if (!tx_desc) {
+		ret = -EINVAL;
+		goto unmap;
+	}
+
+	pdmactl |= PDMACTL_TXPDMAEN;
+
+	/*
+	 * Completion callback goes on whichever channel finishes last:
+	 * - RX transfer (if present) — RX completes after TX
+	 * - TX transfer (if TX-only) — no RX to wait for
+	 */
+	if (rx_desc) {
+		rx_desc->callback = nuc980_spi_dma_callback;
+		rx_desc->callback_param = nspi;
+		tx_desc->callback = NULL;
+	} else {
+		tx_desc->callback = nuc980_spi_dma_callback;
+		tx_desc->callback_param = nspi;
+	}
+
+	reinit_completion(&nspi->dma_done);
+
+	/* Submit descriptors */
+	dmaengine_submit(tx_desc);
+	if (rx_desc)
+		dmaengine_submit(rx_desc);
+
+	/* Start DMA engines */
+	dma_async_issue_pending(nspi->tx_chan);
+	if (rx_desc)
+		dma_async_issue_pending(nspi->rx_chan);
+
+	/* Enable SPI PDMA — triggers hardware DREQs */
+	writel(pdmactl, nspi->base + REG_PDMACTL);
+
+	/* Wait for completion */
+	timeout = wait_for_completion_timeout(&nspi->dma_done,
+			msecs_to_jiffies(NUC980_SPI_XFER_TIMEOUT_MS));
+
+	if (!timeout) {
+		dev_err(dev, "DMA transfer timeout\n");
+		dmaengine_terminate_all(nspi->tx_chan);
+		if (rx_desc)
+			dmaengine_terminate_all(nspi->rx_chan);
+		ret = -ETIMEDOUT;
+	}
+
+	/* Wait for SPI busy flag to clear */
+	readl_poll_timeout(nspi->base + REG_STATUS, status,
+			   !(status & STATUS_BUSY), 0,
+			   NUC980_SPI_CTL_TIMEOUT_US);
+
+	/* Post-DMA cleanup sequence (per Nuvoton reference driver):
+	 * disable SPIEN, disable PDMA, reset FIFOs, clear FIFO
+	 * byte counters, then re-enable SPIEN */
+	writel(readl(nspi->base + REG_CTL) & ~CTL_SPIEN,
+	       nspi->base + REG_CTL);
+	writel(0, nspi->base + REG_PDMACTL);
+
+	writel(FIFOCTL_RXRST | FIFOCTL_TXRST, nspi->base + REG_FIFOCTL);
+	readl_poll_timeout(nspi->base + REG_STATUS, status,
+			   !(status & STATUS_TXRXRST), 0,
+			   NUC980_SPI_CTL_TIMEOUT_US);
+	writel(FIFOCTL_TXFBCLR | FIFOCTL_RXFBCLR, nspi->base + REG_FIFOCTL);
+
+	writel(readl(nspi->base + REG_CTL) | CTL_SPIEN,
+	       nspi->base + REG_CTL);
+
+unmap:
+	if (rx_dma)
+		dma_unmap_single(dev, rx_dma, t->len, DMA_FROM_DEVICE);
+	if (tx_dma)
+		dma_unmap_single(dev, tx_dma, t->len, DMA_TO_DEVICE);
+
+	return ret;
 }
 
 static int nuc980_spi_transfer_one_message(struct spi_controller *master,
@@ -195,51 +371,58 @@ static int nuc980_spi_transfer_one_message(struct spi_controller *master,
 
 		writel(ctl, nspi->base + REG_CTL);
 
-		reinit_completion(&nspi->done);
-
-		nspi->rx_buf = t->rx_buf;
-		nspi->tx_buf = t->tx_buf;
-		nspi->tx_len = t->len;
-		nspi->rx_len = t->len;
-
-		for (i = 0; i < nspi->threshold && nspi->tx_len; i++) {
-			data = nspi->tx_buf ? *nspi->tx_buf++ : 0;
-			writel(data, nspi->base + REG_TX);
-			nspi->tx_len--;
-		}
-
-		if (i >= nspi->threshold) {
-			unsigned long timeout;
-
-			writel(FIFOCTL_RXTHIEN | ((nspi->threshold - 1) << 24),
-						nspi->base + REG_FIFOCTL);
-
-			timeout = wait_for_completion_timeout(&nspi->done,
-				msecs_to_jiffies(NUC980_SPI_XFER_TIMEOUT_MS));
-			if (!timeout) {
-				writel(0x00, nspi->base + REG_FIFOCTL);
-				dev_err(&spi->dev, "SPI transfer timeout\n");
-				ret = -ETIMEDOUT;
+		if (nspi->tx_chan && nspi->rx_chan &&
+		    t->len >= NUC980_SPI_DMA_MIN_BYTES) {
+			ret = nuc980_spi_dma_transfer(nspi, t);
+			if (ret)
 				goto err_out;
-			}
-		}
+		} else {
+			reinit_completion(&nspi->done);
 
-		while (nspi->rx_len) {
-			ret = readl_poll_timeout(nspi->base + REG_STATUS,
-						 status,
-						 !(status & STATUS_RXEMPTY),
-						 0, NUC980_SPI_RX_TIMEOUT_US);
-			if (ret) {
-				dev_err(&spi->dev,
-					"timeout waiting for RX data\n");
-				goto err_out;
+			nspi->rx_buf = t->rx_buf;
+			nspi->tx_buf = t->tx_buf;
+			nspi->tx_len = t->len;
+			nspi->rx_len = t->len;
+
+			for (i = 0; i < nspi->threshold && nspi->tx_len; i++) {
+				data = nspi->tx_buf ? *nspi->tx_buf++ : 0;
+				writel(data, nspi->base + REG_TX);
+				nspi->tx_len--;
 			}
 
-			data = readl(nspi->base + REG_RX);
-			if (nspi->rx_buf)
-				*nspi->rx_buf++ = data;
+			if (i >= nspi->threshold) {
+				unsigned long timeout;
 
-			nspi->rx_len--;
+				writel(FIFOCTL_RXTHIEN | ((nspi->threshold - 1) << 24),
+							nspi->base + REG_FIFOCTL);
+
+				timeout = wait_for_completion_timeout(&nspi->done,
+					msecs_to_jiffies(NUC980_SPI_XFER_TIMEOUT_MS));
+				if (!timeout) {
+					writel(0x00, nspi->base + REG_FIFOCTL);
+					dev_err(&spi->dev, "SPI transfer timeout\n");
+					ret = -ETIMEDOUT;
+					goto err_out;
+				}
+			}
+
+			while (nspi->rx_len) {
+				ret = readl_poll_timeout(nspi->base + REG_STATUS,
+							 status,
+							 !(status & STATUS_RXEMPTY),
+							 0, NUC980_SPI_RX_TIMEOUT_US);
+				if (ret) {
+					dev_err(&spi->dev,
+						"timeout waiting for RX data\n");
+					goto err_out;
+				}
+
+				data = readl(nspi->base + REG_RX);
+				if (nspi->rx_buf)
+					*nspi->rx_buf++ = data;
+
+				nspi->rx_len--;
+			}
 		}
 
 		m->actual_length += t->len;
@@ -322,6 +505,7 @@ static int nuc980_spi_probe(struct platform_device *pdev)
 	nspi = spi_controller_get_devdata(master);
 	platform_set_drvdata(pdev, nspi);
 	nspi->master = master;
+	nspi->dev = dev;
 
 	ret = of_address_to_resource(np, 0, &res);
 	if (ret) {
@@ -373,6 +557,8 @@ static int nuc980_spi_probe(struct platform_device *pdev)
 		goto disable_pclk;
 	}
 
+	nspi->phys_addr = res.start;
+
 	writel(0x00, nspi->base + REG_CTL);
 	ret = readl_poll_timeout(nspi->base + REG_STATUS, status,
 				 !(status & STATUS_ENSTS), 0,
@@ -398,6 +584,27 @@ static int nuc980_spi_probe(struct platform_device *pdev)
 	}
 
 	init_completion(&nspi->done);
+	init_completion(&nspi->dma_done);
+
+	nspi->tx_chan = dma_request_chan(dev, "tx");
+	if (IS_ERR(nspi->tx_chan)) {
+		nspi->tx_chan = NULL;
+		dev_info(dev, "no TX DMA channel, using PIO\n");
+	}
+
+	nspi->rx_chan = dma_request_chan(dev, "rx");
+	if (IS_ERR(nspi->rx_chan)) {
+		if (nspi->tx_chan) {
+			dma_release_channel(nspi->tx_chan);
+			nspi->tx_chan = NULL;
+		}
+		nspi->rx_chan = NULL;
+		dev_info(dev, "no RX DMA channel, using PIO\n");
+	}
+
+	if (nspi->tx_chan && nspi->rx_chan)
+		dev_info(dev, "using DMA for transfers >= %d bytes\n",
+			 NUC980_SPI_DMA_MIN_BYTES);
 
 	nspi->rate = clk_get_rate(nspi->eclk);
 

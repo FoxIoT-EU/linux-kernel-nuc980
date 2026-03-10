@@ -76,6 +76,8 @@
 			clock-names = "pclk", "eclk";
 			resets = <&reset 0x68 4>;
 			interrupts-extended = <&aic 51 4>;
+			dmas = <&pdma0 20>, <&pdma0 21>;
+			dma-names = "tx", "rx";
 			num-chipselects = <1>;
 			// nuvoton,enable-dual;
 			// nuvoton,enable-quad;
@@ -307,6 +309,15 @@
 			compatible = "nuvoton,nuc980-syscon-reset";
 			syscon = <&syscon>;
 			#reset-cells = <2>;
+		};
+
+		pdma0: dma-controller@b0008000 {
+			compatible = "nuvoton,nuc980-pdma";
+			reg = <0xb0008000 0x1000>;
+			clocks = <&clk 0x10 12 0>;
+			resets = <&reset 0x60 4>;
+			interrupts-extended = <&aic 25 4>;
+			#dma-cells = <1>;
 		};
 
 		sd0: nuc980-sd@b0019000 {
