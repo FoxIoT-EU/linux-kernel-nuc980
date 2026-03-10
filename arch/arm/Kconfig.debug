@@ -683,6 +683,13 @@ choice
 		  Say Y here if you want kernel low-level debugging support
 		  on TI-NSPIRE CX models.
 
+	config DEBUG_NUC980_UART0
+		bool "Use UART0 on nuc980 SoCs"
+		depends on ARCH_NUC980
+		help
+		  This option selects UART0 on nuc980 System-on-a-chip
+		  devices.
+
 	config DEBUG_OMAP1UART1
 		bool "Kernel low-level debugging via OMAP1 UART1"
 		depends on ARCH_OMAP1
@@ -1500,6 +1507,7 @@ config DEBUG_LL_INCLUDE
 				 DEBUG_IMX6UL_UART || \
 				 DEBUG_IMX7D_UART
 	default "debug/msm.S" if DEBUG_QCOM_UARTDM
+	default "debug/nuc980.S" if DEBUG_NUC980_UART0
 	default "debug/omap2plus.S" if DEBUG_OMAP2PLUS_UART
 	default "debug/renesas-scif.S" if DEBUG_R7S72100_SCIF2
 	default "debug/renesas-scif.S" if DEBUG_R7S9210_SCIF2

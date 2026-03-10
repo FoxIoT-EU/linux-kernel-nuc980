@@ -1,0 +1,6 @@
+config SND_SOC_NUC980_I2S
+	tristate "SoC Audio (I2S protocol) for NUC980 SoC"
+	depends on ARCH_NUC980 && SND_SOC
+	help
+	  This option enables support for I2S on the NUC980 SoC.
+

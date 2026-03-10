@@ -682,6 +682,14 @@ config NPCM7XX_WATCHDOG
 	  This watchdog is used to reset the system and thus cannot be
 	  compiled as a module.
 
+config NUC980_WATCHDOG
+	bool "Nuvoton NUC980 Watchdog"
+	depends on ARCH_NUC980 || COMPILE_TEST
+	select WATCHDOG_CORE
+	help
+	  Say Y here if to include support for the watchdog timer
+	  for the Nuvoton NUC980 series microprosser.
+
 config TWL4030_WATCHDOG
 	tristate "TWL4030 Watchdog"
 	depends on TWL4030_CORE

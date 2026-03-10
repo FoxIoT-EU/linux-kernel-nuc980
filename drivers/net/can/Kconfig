@@ -190,6 +190,12 @@ config CAN_SLCAN
 	  This driver can also be built as a module. If so, the module
 	  will be called slcan.
 
+config CAN_NUC980
+	tristate "NUC980 CAN controller"
+	depends on ARCH_NUC980
+	help
+	  Say Y here if you want to use CAN controller found on NUC980 SoCs.
+
 config CAN_SUN4I
 	tristate "Allwinner A10 CAN controller"
 	depends on MACH_SUN4I || MACH_SUN7I || (RISCV && ARCH_SUNXI) || COMPILE_TEST

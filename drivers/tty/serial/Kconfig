@@ -1429,6 +1429,24 @@ config SERIAL_MVEBU_CONSOLE
 	  and warnings and which allows logins in single user mode)
 	  Otherwise, say 'N'.
 
+config SERIAL_NUC980
+	tristate "NUC980 serial port support"
+	depends on ARCH_NUC980 || COMPILE_TEST
+	select SERIAL_CORE
+	select SERIAL_CORE_CONSOLE
+	select SERIAL_EARLYCON
+	select SERIAL_MCTRL_GPIO if GPIOLIB
+	help
+	  NUC980 UART
+
+config SERIAL_NUC980_SC
+	tristate "NUC980 SCUART support"
+	depends on ARCH_NUC980 || COMPILE_TEST
+	select SERIAL_CORE
+	select SERIAL_MCTRL_GPIO if GPIOLIB
+	help
+	  NUC980 SCUART
+
 config SERIAL_OWL
 	tristate "Actions Semi Owl serial port support"
 	depends on ARCH_ACTIONS || COMPILE_TEST

@@ -19,3 +19,4 @@ obj-$(CONFIG_PARPORT_ATARI)	+= parport_atari.o
 obj-$(CONFIG_PARPORT_SUNBPP)	+= parport_sunbpp.o
 obj-$(CONFIG_PARPORT_GSC)	+= parport_gsc.o
 obj-$(CONFIG_PARPORT_IP32)	+= parport_ip32.o
+obj-$(CONFIG_PARPORT_GPIO)	+= parport_gpio.o

@@ -506,6 +506,13 @@ config MXS_DMA
 	  Support the MXS DMA engine. This engine including APBH-DMA
 	  and APBX-DMA is integrated into some Freescale chips.
 
+config NUC980_DMA
+        bool "NUC980 DMA support"
+        depends on ARCH_NUC980
+        select DMA_ENGINE
+        help
+          Enable support for the NUC980 DMA controller.
+
 config NBPFAXI_DMA
 	tristate "Renesas Type-AXI NBPF DMA support"
 	select DMA_ENGINE

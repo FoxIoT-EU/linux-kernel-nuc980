@@ -461,6 +461,12 @@ config USB_ASPEED_UDC
 	  dynamically linked module called "aspeed_udc" and force all
 	  gadget drivers to also be dynamically linked.
 
+config USB_NUC980_UDC
+	tristate "NUC980 USB Device Controller"
+	depends on ARCH_NUC980
+	help
+	  On-chip USB Device Controller of Nuvoton NUC980.
+
 source "drivers/usb/gadget/udc/aspeed-vhub/Kconfig"
 
 source "drivers/usb/gadget/udc/cdns2/Kconfig"

@@ -26,4 +26,10 @@ config USB_ROLES_INTEL_XHCI
 	  To compile the driver as a module, choose M here: the module will
 	  be called intel-xhci-usb-role-switch.
 
+config USB_ROLES_NUC980
+	bool "NUC980 USB Role Switch"
+	depends on ARCH_NUC980
+	help
+	  Driver for the internal USB role switch for NUC980.
+
 endif # USB_ROLE_SWITCH

@@ -1,0 +1,669 @@
+/dts-v1/;
+
+/ {
+	compatible = "nuvoton,nuc980";
+	model = "Nuvoton NUC980";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	cpus {
+		cpu {
+			compatible = "arm,arm926ej-s";
+			device_type = "cpu";
+			clocks = <&clk 0x10 0 0>;
+		};
+	};
+
+	aliases {
+		serial0 = &uart0;
+		serial1 = &uart1;
+		serial2 = &uart2;
+		serial3 = &uart3;
+		serial4 = &uart4;
+		serial5 = &uart5;
+		serial6 = &uart6;
+		serial7 = &uart7;
+		serial8 = &uart8;
+		serial9 = &uart9;
+		mdio-gpio1 = &mdio1;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200n8 earlycon";
+		// bootargs = "console=ttyS0,115200n8 earlyprintk ignore_loglevel lpj=744448";
+		stdout-path = "serial0";
+		linux,initrd-start = <0xFFFFFFFF>; // placeholder, bootloader sets correct values
+		linux,initrd-end = <0xFFFFFFFF>;
+	};
+
+	memory {
+		device_type = "memory";
+		reg = <0 0x4000000>;
+	};
+
+	thermal-zones {
+		board {
+			polling-delay = <15000>;
+			polling-delay-passive = <0>;
+			thermal-sensors = <&thermistor>;
+		};
+	};
+
+	apb {
+		compatible = "simple-bus";
+		ranges;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		aic: nuc980-aic@b0042000 {
+			compatible = "nuvoton,nuc980-aic";
+			reg = <0xb0042000 0x1000>;
+			resets = <&reset 0x64 4>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+		};
+
+		clk: nuc980-clk@b00000100 {
+			compatible = "nuvoton,nuc980-clk";
+			reg = <0xb0000200 0x100>;
+			#clock-cells = <3>;
+		};
+
+		qspi: nuc980-spi@b00610000 {
+			compatible = "nuvoton,nuc980-spi";
+			reg = <0xb0060000 0x40>;
+			clocks = <&clk 0x1c 4 0>, <&clk 0x1c 4 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x68 4>;
+			interrupts-extended = <&aic 51 4>;
+			num-chipselects = <1>;
+			// nuvoton,enable-dual;
+			// nuvoton,enable-quad;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_qspi>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			m25p80@0 {
+				compatible = "jedec,spi-nor";
+				reg = <0>;
+				spi-max-frequency = <40000000>;
+				#address-cells = <1>;
+				#size-cells = <1>;
+				bootloader: partition@0 {
+					label = "bootloader";
+					reg = <0x0 0x40000>;
+				};
+				test: test@40000 {
+					label = "test";
+					reg = <0x40005 0x41000>;
+				};
+			};
+		};
+
+		spi0: nuc980-spi@b0061000 {
+			compatible = "nuvoton,nuc980-spi";
+			reg = <0xb0061000 0x40>;
+			clocks = <&clk 0x1c 5 0>, <&clk 0x1c 5 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x68 5>;
+			interrupts-extended  = <&aic 52 4>;
+			num-chipselects = <2>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_spi0>;
+			#address-cells = <1>;
+			#size-cells = <0>;
+			mmc@0 {
+				compatible = "mmc-spi-slot";
+				reg = <0>;
+				spi-max-frequency = <10000000>;
+				voltage-ranges = <3300 3300>;
+			};
+		};
+
+		spi1: nuc980-spi@b0062000 {
+			compatible = "nuvoton,nuc980-spi";
+			reg = <0xb0062000 0x40>;
+			clocks = <&clk 0x1c 6 0>, <&clk 0x1c 6 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x68 6>;
+			interrupts-extended = <&aic 50 4>;
+			num-chipselects = <2>;
+			status = "disabled";
+			#address-cells = <1>;
+			#size-cells = <0>;
+		};
+
+                rtc: nuc980-rtc@b0041000 {
+			compatible = "nuvoton,nuc980-rtc";
+			reg = <0xb0041000 0x100>;
+			clocks = <&clk 0x18 2 0>;
+			interrupts-extended = <&aic 15 4>;
+		};
+
+		adc: nuc980-adc@b0043000 {
+			compatible = "nuvoton,nuc980-adc";
+			reg = <0xb0043000 0x100>;
+			clocks = <&clk 0x1c 24 0>;
+			resets = <&reset 0x68 24>;
+			interrupts-extended = <&aic 18 4>;
+			sampling-frequency = <3300>;
+			#io-channel-cells = <1>;
+		};
+
+		thermistor: thermal-sensor {
+			compatible = "generic-adc-thermal";
+			io-channels = <&adc 1>;
+			io-channel-names = "sensor-channel";
+			#thermal-sensor-cells = <0>;
+		};
+
+		timer0: nuc980-timer@b0050000 {
+			compatible = "nuvoton,nuc980-timer";
+			reg = <0xb0050000 0x200>;
+			clocks = <&clk 0x18 8 0>, <&clk 0x18 8 1>, <&clk 0x18 9 0>, <&clk 0x18 9 1>;
+			clock-names = "pclk-a", "eclk-a", "pclk-b", "eclk-b";
+			resets = <&reset 0x64 8 &reset 0x64 9>;
+			reset-names = "rst-a", "rst-b";
+			interrupts-extended = <&aic 16 4>;
+		};
+
+		timer1: nuc980-timer@b0051000 {
+			compatible = "nuvoton,nuc980-timer";
+			reg = <0xb0051000 0x200>;
+			clocks = <&clk 0x18 10 0>, <&clk 0x18 10 1>, <&clk 0x18 11 0>, <&clk 0x18 11 1>;
+			clock-names = "pclk-a", "eclk-a", "pclk-b", "eclk-b";
+			resets = <&reset 0x64 10 &reset 0x64 11>;
+			reset-names = "rst-a", "rst-b";
+			interrupts-extended = <&aic 30 4>;
+			status = "disabled";
+		};
+
+		i2c0: nuc980-i2c@b0080000 {
+			compatible = "nuvoton,nuc980-i2c";
+			reg = <0xb0080000 0x100>;
+			clocks = <&clk 0x1c 0 0>;
+			resets = <&reset 0x68 0>;
+			interrupts-extended = <&aic 53 4>;
+			clock-frequency = <100000>;
+			pinctrl-0 = <&pinctrl_i2c0>;
+			pinctrl-names = "default";
+//			status = "disabled";
+		};
+
+		uart0: nuc980-uart@b0070000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0070000 0x100>;
+			clocks = <&clk 0x18 16 0>, <&clk 0x18 16 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 16>;
+			interrupts-extended = <&aic 36 4>;
+			pinctrl-0 = <&pinctrl_uart0>;
+			pinctrl-names = "default";
+		};
+
+		uart1: nuc980-uart@b0071000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0071000 0x100>;
+			clocks = <&clk 0x18 17 0>, <&clk 0x18 17 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 17>;
+			interrupts-extended = <&aic 37 4>;
+			assigned-clocks = <&clk 0x18 17 1>;
+			assigned-clock-parents = <&clk 0x64 28 0>;
+			assigned-clock-rates = <150000000>;
+			pinctrl-0 = <&pinctrl_uart1>;
+			pinctrl-names = "default";
+			dtr-gpios = <&gpioF 8 1>;
+			rng-gpios = <&gpioF 7 1>;
+		};
+
+		uart2: nuc980-uart@b0072000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0072000 0x100>;
+			clocks = <&clk 0x18 18 0>, <&clk 0x18 18 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 18>;
+			interrupts-extended = <&aic 38 4>;
+		};
+
+		uart3: nuc980-uart@b0073000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0073000 0x100>;
+			clocks = <&clk 0x18 19 0>, <&clk 0x18 19 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 19>;
+			interrupts-extended = <&aic 43 4>;
+		};
+
+		uart4: nuc980-uart@b0074000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0074000 0x100>;
+			clocks = <&clk 0x18 20 0>, <&clk 0x18 20 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 20>;
+			interrupts-extended = <&aic 39 4>;
+		};
+
+		uart5: nuc980-uart@b0075000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0075000 0x100>;
+			clocks = <&clk 0x18 21 0>, <&clk 0x18 21 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 21>;
+			interrupts-extended = <&aic 44 4>;
+		};
+
+		uart6: nuc980-uart@b0076000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0076000 0x100>;
+			clocks = <&clk 0x18 22 0>, <&clk 0x18 22 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 22>;
+			interrupts-extended = <&aic 40 4>;
+		};
+
+		uart7: nuc980-uart@b0077000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0077000 0x100>;
+			clocks = <&clk 0x18 23 0>, <&clk 0x18 23 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 23>;
+			interrupts-extended = <&aic 45 4>;
+		};
+
+		uart8: nuc980-uart@b0078000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0078000 0x100>;
+			clocks = <&clk 0x18 24 0>, <&clk 0x18 24 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 24>;
+			interrupts-extended = <&aic 41 4>;
+		};
+
+		uart9: nuc980-uart@b0079000 {
+			compatible = "nuvoton,nuc980-uart";
+			reg = <0xb0079000 0x100>;
+			clocks = <&clk 0x18 25 0>, <&clk 0x18 25 1>;
+			clock-names = "pclk", "eclk";
+			resets = <&reset 0x64 25>;
+			interrupts-extended = <&aic 46 4>;
+		};
+	};
+
+	ahb {
+		compatible = "simple-bus";
+		ranges;
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		syscon: nuc980-syscon@b0000000 {
+			compatible = "nuvoton,nuc980-syscon", "syscon";
+			reg = <0xb0000000 0x200>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+		};
+
+		reset: nuc980-syscon-reset@b0000060 {
+			compatible = "nuvoton,nuc980-syscon-reset";
+			syscon = <&syscon>;
+			#reset-cells = <2>;
+		};
+
+		sd0: nuc980-sd@b0019000 {
+			compatible = "nuvoton,nuc980-sd";
+			reg = <0xb0019000 0x1000>;
+			clocks = <&clk 0x10 22 0>, <&clk 0x10 22 1>, <&clk 0x10 20 0>;
+			clock-names = "hclk", "eclk", "fmiclk";
+			resets = <&reset 0x60 20>;
+			interrupts-extended = <&aic 28 4>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_sd0>;
+			max-frequency = <30000000>;
+			bus-width = <4>;
+			cap-sd-highspeed;
+			cap-mmc-highspeed;
+			disable-wp;
+			// cap-sdio-irq;
+			broken-cd;
+			status = "disabled";
+		};
+
+		sd1: nuc980-sd@b0018000 {
+			compatible = "nuvoton,nuc980-sd";
+			reg = <0xb0018000 0x1000>;
+			clocks = <&clk 0x10 30 0>, <&clk 0x10 30 1>;
+			clock-names = "hclk", "eclk";
+			resets = <&reset 0x60 24>;
+			interrupts-extended = <&aic 27 4>;
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_sd1>;
+			max-frequency = <50000000>;
+			bus-width = <4>;
+			cap-sd-highspeed;
+			cap-mmc-highspeed;
+			disable-wp;
+			cd-gpios = <&gpioF 6 0>;
+			// cap-sdio-irq;
+			// broken-cd;
+			// status = "disabled";
+		};
+
+		pinctrl: nuc980-syscon-pinctrl@b00000070 {
+			compatible = "nuvoton,nuc980-syscon-pinctrl";
+			ranges;
+			syscon = <&syscon>;
+			nuvoton,pins =
+				/* 0   1   2   3   4   5   6   7   8   9  10  11  12  13  14  15 */ // LQFP128
+				<  2   3   4   5   6   7   8  14  15  16  17  18  19   0   0   0>,  // portA
+				< 29  36  38  37  31  35  30  34  42   0   0   0   0  93   0   0>,  // portB
+				< 44  45  46  47  48  49  50  51  52  53  54  55  56  57  58  59>,  // portC
+				<  0   0  61  62  63  65  66  67  68  69  70  71  72  73  74  75>,  // portD
+				<105 106 107 108 109 110 111 112 113 114 115 116 117   0   0   0>,  // portE
+				< 86  87  88  89  90  91  92  96  97  98  99 100 101   0   0   0>,  // portF
+				< 28  27   0  26   0  25  24  23  22  21   0  76  77  78  79  80>;  // portG
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_default>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			gpioA: nuc980-gpio@b0004000 {
+				compatible = "nuvoton,nuc980-gpio";
+				reg = <0xb0004000 0x40>;
+				clocks = <&clk 0x10 11 0>;
+				resets = <&reset 0x60 7>;
+				interrupts-extended = <&aic 8 4>;
+				nuvoton,pinctrl = <&pinctrl 0>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+
+			gpioB: nuc980-gpio@b0004040 {
+				compatible = "nuvoton,nuc980-gpio";
+				reg = <0xb0004040 0x40>;
+				clocks = <&clk 0x10 11 0>;
+				resets = <&reset 0x60 7>;
+				interrupts-extended = <&aic 9 4>;
+				nuvoton,pinctrl = <&pinctrl 1>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+
+			gpioC: nuc980-gpio@b0004080 {
+				compatible = "nuvoton,nuc980-gpio";
+				reg = <0xb0004080 0x40>;
+				clocks = <&clk 0x10 11 0>;
+				resets = <&reset 0x60 7>;
+				interrupts-extended = <&aic 10 4>;
+				nuvoton,pinctrl = <&pinctrl 2>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+
+			gpioD: nuc980-gpio@b00040C0 {
+				compatible = "nuvoton,nuc980-gpio";
+				reg = <0xb00040C0 0x40>;
+				clocks = <&clk 0x10 11 0>;
+				resets = <&reset 0x60 7>;
+				interrupts-extended = <&aic 11 4>;
+				nuvoton,pinctrl = <&pinctrl 3>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+
+			gpioE: nuc980-gpio@b0004100 {
+				compatible = "nuvoton,nuc980-gpio";
+				reg = <0xb0004100 0x40>;
+				clocks = <&clk 0x10 11 0>;
+				resets = <&reset 0x60 7>;
+				interrupts-extended = <&aic 49 4>;
+				nuvoton,pinctrl = <&pinctrl 4>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+
+			gpioF: nuc980-gpio@b0004140 {
+				compatible = "nuvoton,nuc980-gpio";
+				reg = <0xb0004140 0x40>;
+				clocks = <&clk 0x10 11 0>;
+				resets = <&reset 0x60 7>;
+				interrupts-extended = <&aic 57 4>;
+				nuvoton,pinctrl = <&pinctrl 5>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+
+			gpioG: nuc980-gpio@b0004180 {
+				compatible = "nuvoton,nuc980-gpio";
+				reg = <0xb0004180 0x40>;
+				clocks = <&clk 0x10 11 0>;
+				resets = <&reset 0x60 7>;
+				interrupts-extended = <&aic 63 4>;
+				nuvoton,pinctrl = <&pinctrl 6>;
+				interrupt-controller;
+				#interrupt-cells = <2>;
+				gpio-controller;
+				#gpio-cells = <2>;
+			};
+
+			pinctrl_default: pinctrl_default {
+				adc {
+					pins = "PB1";
+					function = "mfp8";
+				};
+			};
+
+			pinctrl_buttons: pinctrl_buttons {
+				pins = "PE10", "PE12";
+				function = "mfp0";
+				bias-pull-up;
+				input-schmitt-enable = <1>;
+				input-debounce = <1>;
+			};
+
+			pinctrl_leds: pinctrl_leds {
+				pins = "PB8", "PG15", "PB13";
+				function = "mfp0";
+				drive-push-pull;
+			};
+
+			pinctrl_i2c0: pinctrl_i2c0 {
+				pins = "PA0", "PA1";
+				function = "mfp3";
+				// function = "mfp0";
+			};
+
+			pinctrl_uart0: pinctrl_uart0 {
+				pins = "PF11", "PF12";
+				function = "mfp1";
+			};
+
+			pinctrl_uart1: pinctrl_uart1 {
+				uart {
+					// pins = "PF8", "PF9", "PF10";
+					pins = "PF9", "PF10";
+					function = "mfp2";
+				};
+				modem {
+					pins = "PF7", "PF8";
+					functions = "mfp0";
+				};
+			};
+
+			pinctrl_emac0: pinctrl_emac0 {
+				pins = "PE0", "PE1", "PE2", "PE3", "PE4", "PE5", "PE6", "PE7", "PE8", "PE9";
+				function = "mfp1";
+			};
+
+		/*	emac1 {
+				pinctrl_emac1: pinctrl_emac1 {
+					pins = "PF0", "PF1", "PF2", "PF3", "PF4", "PF5", "PF6", "PF7";
+					function = "mfp1";
+				};
+
+				pinctrl_mdio1: pinctrl_mdio1 {
+					pins = "PB8", "PF9";
+					function = "mfp0";
+				};
+			};*/
+
+			pinctrl_qspi: pinctrl_qspi {
+				pins = "PD2", "PD3", "PD4", "PD5";
+				function = "mfp1";
+				drive-push-pull;
+			};
+
+			pinctrl_spi0: pinctrl_spi0 {
+				pins = "PD8", "PD9", "PD10", "PD11";
+				function = "mfp1";
+				drive-push-pull;
+			};
+
+			pinctrl_sd0: pinctrl_sd0 {
+				pins = "PC5", "PC6", "PC7", "PC8", "PC9", "PC10", "PC12";
+				function = "mfp6";
+			};
+
+			pinctrl_sd1: pinctrl_sd1 {
+				pins = "PF0", "PF1", "PF2", "PF3", "PF4", "PF5";
+				function = "mfp2";
+			};
+
+			pinctrl_usbhl: pinctrl_usbhl {
+				usbhl0 {
+					pins = "PB5", "PB7";
+					function = "mfp4";
+				};
+			};
+		};
+
+		ehci0: generic-ehci@b0015000 {
+			compatible = "generic-ehci";
+			reg = <0xb0015000 0x1000>;
+			clocks = <&clk 0x10 18 0>;
+			resets = <&reset 0x60 18>;
+			interrupts-extended = <&aic 23 4>;
+		};
+
+		ohci0: generic-ohci@b0017000 {
+			compatible = "generic-ohci";
+			reg = <0xb0017000 0x1000>;
+			clocks = <&clk 0x10 18 0>;
+			resets = <&reset 0x60 18>;
+			interrupts-extended = <&aic 24 4>;
+		};
+
+		emac0: nuc980-emac@b0012000 {
+			compatible = "nuvoton,nuc980-emac";
+			reg = <0xb0012000 0x100>;
+			clocks = <&clk 0x10 16 0>;
+			resets = <&reset 0x60 16>;
+			interrupts-extended = <&aic 21 4>, <&aic 19 4>;
+			interrupt-names = "tx", "rx";
+			phy = <&phy0>;
+			mac-address = [00 e0 4c 68 6f aa];
+			pinctrl-names = "default";
+			pinctrl-0 = <&pinctrl_emac0>;
+			mdio0: mdio-bus {
+				clocks = <&clk 0x10 16 0>, <&clk 0x10 16 1>;
+				clock-names = "hclk", "eclk";
+				resets = <&reset 0x60 16>;
+				#address-cells = <1>;
+				#size-cells = <0>;
+				phy0: phy@1 {
+					reg = <1>;
+				};
+			};
+		};
+
+		emac1: nuc980-emac@b0022000 {
+			compatible = "nuvoton,nuc980-emac";
+			reg = <0xb0022000 0x100>;
+			clocks = <&clk 0x10 17 0>;
+			resets = <&reset 0x60 17>;
+			interrupts-extended = <&aic 22 4>, <&aic 20 4>;
+			interrupt-names = "tx", "rx";
+			phy = <&phy1>;
+			mac-address = [00 e0 4c 68 6f ab];
+//			pinctrl-names = "default";
+//			pinctrl-0 = <&pinctrl_emac1>;
+			status = "disabled";
+		};
+	};
+
+	mdio1: mdio-gpio {
+		compatible = "virtual,mdio-gpio";
+		gpios = <&gpioF 9 0>, <&gpioF 8 0>;
+//		pinctrl-names = "default";
+//		pinctrl-0 = <&pinctrl_mdio1>;
+		status = "disabled";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		phy1: phy@0 {
+			reg = <0>;
+		};
+	};
+
+	i2c1: gpio-i2c {
+		compatible = "i2c-gpio";
+		scl-gpios = <&gpioA 1 0>;
+		sda-gpios = <&gpioA 0 0>;
+		clock-frequency = <100000>;
+		pinctrl-0 = <&pinctrl_i2c0>;
+		pinctrl-names = "default";
+		status = "disabled";
+	};
+
+	leds: gpio-leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_leds>;
+
+		led3 {
+			label = "led3";
+			gpios = <&gpioB 8 1>;
+		};
+
+		led4 {
+			label = "led4";
+			gpios = <&gpioG 15 1>;
+		};
+
+		led5 {
+			label = "led5";
+			gpios = <&gpioB 13 1>;
+		};
+	};
+
+	keys: gpio-keys {
+		compatible = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_buttons>;
+
+		k1 {
+			label = "k1";
+			interrupts-extended = <&gpioE 10 2>;
+			gpios = <&gpioE 10 1>;
+			linux,code = <103>;
+		};
+
+		k2 {
+			label = "k2";
+			interrupts-extended = <&gpioE 12 2>;
+			gpios = <&gpioE 12 1>;
+			linux,code = <103>;
+		};
+	};
+};
+

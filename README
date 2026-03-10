@@ -1,3 +1,8 @@
+NUC980 (ARM926EJ-S) kernel support for FoxIoT Wolf Gateway
+Based on Linux 6.12.y LTS
+NUC980 platform patches by rebane@alkohol.ee, ported from 6.2.0-rc7
+Contact: support@foxiot.eu
+
 Linux kernel
 ============
 

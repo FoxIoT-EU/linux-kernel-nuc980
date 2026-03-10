@@ -914,6 +914,13 @@ config I2C_NOMADIK
 	  I2C interface from ST-Ericsson's Nomadik and Ux500 architectures,
 	  as well as the STA2X11 PCIe I/O HUB.
 
+config I2C_NUC980
+	tristate "NUC980 I2C controller"
+	depends on ARCH_NUC980 || COMPILE_TEST
+	help
+	  Say Y here if you want to use the I2C bus controller on
+	  the NUC980 SoC's.
+
 config I2C_NPCM
 	tristate "Nuvoton I2C Controller"
 	depends on ARCH_NPCM || COMPILE_TEST
