@@ -3,6 +3,14 @@ Based on Linux 6.12.y LTS
 NUC980 platform patches by rebane@alkohol.ee, ported from 6.2.0-rc7
 Contact: support@foxiot.eu
 
+Building
+========
+
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- foxiot_wolf_defconfig
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc)
+
+Kernel image: arch/arm/boot/zImage
+
 Linux kernel
 ============
 
