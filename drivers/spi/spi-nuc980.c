@@ -15,6 +15,7 @@
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -49,6 +50,13 @@
 #define NUC980_SPI_REG_SIZE   0x40
 
 #define NUC980_SPI_MAX_NUM_CS 2
+
+/* Timeout for SPI enable/disable and FIFO reset */
+#define NUC980_SPI_CTL_TIMEOUT_US    1000
+/* Timeout waiting for RX data per byte */
+#define NUC980_SPI_RX_TIMEOUT_US     10000
+/* Timeout for IRQ-driven completion */
+#define NUC980_SPI_XFER_TIMEOUT_MS   2000
 
 struct nuc980_spi {
 	struct spi_controller *master;
@@ -97,6 +105,8 @@ static int nuc980_spi_transfer_one_message(struct spi_controller *master,
 	u8 data;
 	u32 clkdiv;
 	u32 ctl = (8 << 8) | CTL_SPIEN; // data bits
+	u32 status;
+	int ret;
 
 	writel(0x00, nspi->base + REG_CTL);
 
@@ -109,24 +119,36 @@ static int nuc980_spi_transfer_one_message(struct spi_controller *master,
 	if (!speed_hz)
 		speed_hz = 100000;
 
-	while (readl(nspi->base + REG_STATUS) & STATUS_ENSTS)
-		cpu_relax();
+	ret = readl_poll_timeout(nspi->base + REG_STATUS, status,
+				 !(status & STATUS_ENSTS), 0,
+				 NUC980_SPI_CTL_TIMEOUT_US);
+	if (ret) {
+		dev_err(&spi->dev, "timeout waiting for SPI disable\n");
+		m->status = ret;
+		spi_finalize_current_message(master);
+		return 0;
+	}
 
 	clkdiv = min(DIV_ROUND_UP(nspi->rate, speed_hz), 0x200LU) - 1;
 
 	writel(clkdiv, nspi->base + REG_CLKDIV);
 
+	/*
+	 * SPI mode to NUC980 register mapping (verified against TRM):
+	 *   CLKPOL = idle clock level (0=low, 1=high)
+	 *   TXNEG  = transmit on falling edge
+	 *   RXNEG  = receive/sample on falling edge
+	 *   TXNEG and RXNEG are mutually exclusive per TRM.
+	 */
 	spimode = spi->mode & (SPI_CPOL | SPI_CPHA);
 	if (spimode == SPI_MODE_0) {
 		ctl |= CTL_TXNEG;
 	} else if (spimode == SPI_MODE_1) {
-		ctl |= CTL_CLKPOL;
 		ctl |= CTL_RXNEG;
 	} else if (spimode == SPI_MODE_2) {
-		ctl |= CTL_RXNEG;
+		ctl |= CTL_CLKPOL | CTL_RXNEG;
 	} else if (spimode == SPI_MODE_3) {
-		// ctl |= CTL_CLKPOL;
-		ctl |= CTL_TXNEG;
+		ctl |= CTL_CLKPOL | CTL_TXNEG;
 	}
 
 	if (spi->mode & SPI_LSB_FIRST)
@@ -135,8 +157,13 @@ static int nuc980_spi_transfer_one_message(struct spi_controller *master,
 	nuc980_spi_cs_assert(spi);
 	writel(ctl, nspi->base + REG_CTL);
 
-	while (!(readl(nspi->base + REG_STATUS) & STATUS_ENSTS))
-		cpu_relax();
+	ret = readl_poll_timeout(nspi->base + REG_STATUS, status,
+				 status & STATUS_ENSTS, 0,
+				 NUC980_SPI_CTL_TIMEOUT_US);
+	if (ret) {
+		dev_err(&spi->dev, "timeout waiting for SPI enable\n");
+		goto err_out;
+	}
 
 	m->actual_length = 0;
 
@@ -148,8 +175,13 @@ static int nuc980_spi_transfer_one_message(struct spi_controller *master,
 		cs_change = t->cs_change;
 
 		writel(FIFOCTL_RXRST | FIFOCTL_TXRST, nspi->base + REG_FIFOCTL);
-		while (readl(nspi->base + REG_STATUS) & STATUS_TXRXRST)
-			cpu_relax();
+		ret = readl_poll_timeout(nspi->base + REG_STATUS, status,
+					 !(status & STATUS_TXRXRST), 0,
+					 NUC980_SPI_CTL_TIMEOUT_US);
+		if (ret) {
+			dev_err(&spi->dev, "timeout waiting for FIFO reset\n");
+			goto err_out;
+		}
 
 		ctl &= ~(CTL_DATDIR | CTL_DUALIOEN | CTL_QUADIOEN);
 		if (t->rx_nbits & SPI_NBITS_DUAL)
@@ -177,15 +209,31 @@ static int nuc980_spi_transfer_one_message(struct spi_controller *master,
 		}
 
 		if (i >= nspi->threshold) {
+			unsigned long timeout;
+
 			writel(FIFOCTL_RXTHIEN | ((nspi->threshold - 1) << 24),
 						nspi->base + REG_FIFOCTL);
 
-			wait_for_completion(&nspi->done);
+			timeout = wait_for_completion_timeout(&nspi->done,
+				msecs_to_jiffies(NUC980_SPI_XFER_TIMEOUT_MS));
+			if (!timeout) {
+				writel(0x00, nspi->base + REG_FIFOCTL);
+				dev_err(&spi->dev, "SPI transfer timeout\n");
+				ret = -ETIMEDOUT;
+				goto err_out;
+			}
 		}
 
 		while (nspi->rx_len) {
-			while (readl(nspi->base + REG_STATUS) & STATUS_RXEMPTY)
-				cpu_relax();
+			ret = readl_poll_timeout(nspi->base + REG_STATUS,
+						 status,
+						 !(status & STATUS_RXEMPTY),
+						 0, NUC980_SPI_RX_TIMEOUT_US);
+			if (ret) {
+				dev_err(&spi->dev,
+					"timeout waiting for RX data\n");
+				goto err_out;
+			}
 
 			data = readl(nspi->base + REG_RX);
 			if (nspi->rx_buf)
@@ -207,6 +255,14 @@ static int nuc980_spi_transfer_one_message(struct spi_controller *master,
 
 	m->status = 0;
 
+	spi_finalize_current_message(master);
+	return 0;
+
+err_out:
+	nuc980_spi_cs_deassert(spi);
+	writel(0x00, nspi->base + REG_FIFOCTL);
+	writel(0x00, nspi->base + REG_CTL);
+	m->status = ret;
 	spi_finalize_current_message(master);
 	return 0;
 }
@@ -253,6 +309,7 @@ static int nuc980_spi_probe(struct platform_device *pdev)
 	struct resource res;
 	u32 fifo_size;
 	u32 num_cs;
+	u32 status;
 	int irq;
 	int ret;
 
@@ -312,13 +369,18 @@ static int nuc980_spi_probe(struct platform_device *pdev)
 	nspi->base = devm_ioremap_resource(dev, &res);
 	if (IS_ERR(nspi->base)) {
 		dev_err(dev, "unable to map mem region\n");
-                ret = PTR_ERR(nspi->base);
+		ret = PTR_ERR(nspi->base);
 		goto disable_pclk;
 	}
 
 	writel(0x00, nspi->base + REG_CTL);
-	while (readl(nspi->base + REG_STATUS) & STATUS_ENSTS)
-		cpu_relax();
+	ret = readl_poll_timeout(nspi->base + REG_STATUS, status,
+				 !(status & STATUS_ENSTS), 0,
+				 NUC980_SPI_CTL_TIMEOUT_US);
+	if (ret) {
+		dev_err(dev, "timeout waiting for SPI disable\n");
+		goto disable_pclk;
+	}
 
 	irq = irq_of_parse_and_map(np, 0);
 	if (irq <= 0) {
@@ -348,9 +410,9 @@ static int nuc980_spi_probe(struct platform_device *pdev)
 
 	if (of_property_read_u32(np, "num-cs", &num_cs) ||
 					num_cs > NUC980_SPI_MAX_NUM_CS)
-                master->num_chipselect = NUC980_SPI_MAX_NUM_CS;
-        else
-                master->num_chipselect = num_cs;
+		master->num_chipselect = NUC980_SPI_MAX_NUM_CS;
+	else
+		master->num_chipselect = num_cs;
 
 	if (of_property_read_u32(np, "nuvoton,fifo-size", &fifo_size))
 		nspi->threshold = 4;
@@ -359,8 +421,13 @@ static int nuc980_spi_probe(struct platform_device *pdev)
 
 	writel(0x00, nspi->base + REG_PDMACTL);
 	writel(FIFOCTL_RXRST | FIFOCTL_TXRST, nspi->base + REG_FIFOCTL);
-	while (readl(nspi->base + REG_STATUS) & STATUS_TXRXRST)
-		cpu_relax();
+	ret = readl_poll_timeout(nspi->base + REG_STATUS, status,
+				 !(status & STATUS_TXRXRST), 0,
+				 NUC980_SPI_CTL_TIMEOUT_US);
+	if (ret) {
+		dev_err(dev, "timeout waiting for FIFO reset\n");
+		goto disable_pclk;
+	}
 
 	writel(0x1FF, nspi->base + REG_CLKDIV);
 
@@ -399,6 +466,6 @@ static struct platform_driver nuc980_spi_driver = {
 
 static int __init nuc980_spi_init(void)
 {
-        return platform_driver_register(&nuc980_spi_driver);
+	return platform_driver_register(&nuc980_spi_driver);
 }
 device_initcall(nuc980_spi_init);
