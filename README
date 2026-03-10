@@ -7,7 +7,7 @@ Building
 ========
 
     make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- foxiot_wolf_defconfig
-    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- -j$(nproc)
+    make ARCH=arm CROSS_COMPILE=arm-linux-gnueabi- KBUILD_BUILD_USER=erko KBUILD_BUILD_HOST=foxiot.eu -j$(nproc)
 
 Kernel image: arch/arm/boot/zImage
 
