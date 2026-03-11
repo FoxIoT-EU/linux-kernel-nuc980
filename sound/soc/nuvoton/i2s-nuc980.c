@@ -30,10 +30,10 @@
 #include <sound/soc-dai.h>
 
 #define REG_GLBCON                     0x00
-#define   GLBCON_I2S_EN                (1 << 0)
+#define   GLBCON_I2S_EN                BIT(0)
 #define   GLBCON_BITS_SELECT_16        (0x01 << 8)
-#define   GLBCON_P_DMA_IRQ             (1 << 10)
-#define   GLBCON_R_DMA_IRQ             (1 << 11)
+#define   GLBCON_P_DMA_IRQ             BIT(10)
+#define   GLBCON_R_DMA_IRQ             BIT(11)
 #define   GLBCON_P_DMA_IRQ_SEL_END     (0x00 << 12)
 #define   GLBCON_P_DMA_IRQ_SEL_HALF    (0x01 << 12)
 #define   GLBCON_P_DMA_IRQ_SEL_QUARTER (0x02 << 12)
@@ -42,11 +42,11 @@
 #define   GLBCON_R_DMA_IRQ_SEL_HALF    (0x01 << 14)
 #define   GLBCON_R_DMA_IRQ_SEL_QUARTER (0x02 << 14)
 #define   GLBCON_R_DMA_IRQ_SEL_EIGHTH  (0x03 << 14)
-#define   GLBCON_P_DMA_IRQ_EN          (1 << 20)
-#define   GLBCON_R_DMA_IRQ_EN          (1 << 21)
+#define   GLBCON_P_DMA_IRQ_EN          BIT(20)
+#define   GLBCON_R_DMA_IRQ_EN          BIT(21)
 #define REG_RESET                      0x04
-#define   RESET_PLAY                   (1 << 5)
-#define   RESET_RECORD                 (1 << 6)
+#define   RESET_PLAY                   BIT(5)
+#define   RESET_RECORD                 BIT(6)
 #define   RESET_PLAY_SINGLE_STEREO     (0x03 << 12)
 #define   RESET_RECORD_SINGLE_STEREO   (0x03 << 14)
 #define REG_RDESB                      0x08
@@ -56,13 +56,13 @@
 #define REG_PDES_LENGTH                0x18
 #define REG_PDESC                      0x1c
 #define REG_RSR                        0x20
-#define   RSR_R_DMA_RIA_IRQ            (1 << 0)
+#define   RSR_R_DMA_RIA_IRQ            BIT(0)
 #define REG_PSR                        0x24
-#define   PSR_P_DMA_RIA_IRQ            (1 << 0)
+#define   PSR_P_DMA_RIA_IRQ            BIT(0)
 #define REG_CON                        0x28
-#define   CON_FORMAT                   (1 << 3)
-#define   CON_MCLK_SEL                 (1 << 4)
-#define   CON_SLAVE                    (1 << 20)
+#define   CON_FORMAT                   BIT(3)
+#define   CON_MCLK_SEL                 BIT(4)
+#define   CON_SLAVE                    BIT(20)
 #define NUC980_I2S_REG_SIZE            0x50
 
 struct nuc980_i2s {
@@ -410,10 +410,11 @@ static int nuc980_i2s_pcm_hw_free(struct snd_soc_component *component,
 }
 
 
-static struct snd_soc_dai_ops nuc980_i2s_dai_ops = {
+static const struct snd_soc_dai_ops nuc980_i2s_dai_ops = {
 	.trigger    = nuc980_i2s_trigger,
 	.hw_params  = nuc980_i2s_hw_params,
 	.set_fmt    = nuc980_i2s_set_fmt,
+	.pcm_new    = nuc980_i2s_pcm_new,
 };
 
 static struct snd_soc_dai_driver nuc980_i2s_dai_driver = {
@@ -430,7 +431,6 @@ static struct snd_soc_dai_driver nuc980_i2s_dai_driver = {
 		.channels_max = 2,
 	},
 	.ops      = &nuc980_i2s_dai_ops,
-	.pcm_new  = nuc980_i2s_pcm_new,
 };
 
 static const struct snd_soc_component_driver nuc980_i2s_component_driver = {
@@ -507,7 +507,7 @@ static int nuc980_i2s_probe(struct platform_device *pdev)
 	ni2s->base = devm_ioremap_resource(dev, &res);
 	if (IS_ERR(ni2s->base)) {
 		dev_err(dev, "unable to map mem region\n");
-                ret = PTR_ERR(ni2s->base);
+		ret = PTR_ERR(ni2s->base);
 		goto disable_hclk;
 	}
 
@@ -561,6 +561,6 @@ static struct platform_driver nuc980_i2s_driver = {
 
 static int __init nuc980_i2s_init(void)
 {
-        return platform_driver_register(&nuc980_i2s_driver);
+	return platform_driver_register(&nuc980_i2s_driver);
 }
 device_initcall(nuc980_i2s_init);
