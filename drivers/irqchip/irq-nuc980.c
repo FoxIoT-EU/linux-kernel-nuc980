@@ -43,9 +43,9 @@ static struct irq_domain *nuc980_aic_domain;
 static void nuc980_aic_irq_mask(struct irq_data *d)
 {
 	if (d->hwirq < 32)
-		writel(1 << (d->hwirq), nuc980_aic_base + REG_INTDIS0);
+		writel(BIT(d->hwirq), nuc980_aic_base + REG_INTDIS0);
 	else
-		writel(1 << (d->hwirq - 32), nuc980_aic_base + REG_INTDIS1);
+		writel(BIT(d->hwirq - 32), nuc980_aic_base + REG_INTDIS1);
 }
 
 static void nuc980_aic_irq_ack(struct irq_data *d)
@@ -56,9 +56,9 @@ static void nuc980_aic_irq_ack(struct irq_data *d)
 static void nuc980_aic_irq_unmask(struct irq_data *d)
 {
 	if (d->hwirq < 32)
-		writel(1 << (d->hwirq), nuc980_aic_base + REG_INTEN0);
+		writel(BIT(d->hwirq), nuc980_aic_base + REG_INTEN0);
 	else
-		writel(1 << (d->hwirq - 32), nuc980_aic_base + REG_INTEN1);
+		writel(BIT(d->hwirq - 32), nuc980_aic_base + REG_INTEN1);
 }
 
 static struct irq_chip nuc980_aic_irq_chip = {
@@ -120,7 +120,7 @@ static int nuc980_aic_domain_xlate(struct irq_domain *d,
 	return 0;
 }
 
-static struct irq_domain_ops nuc980_aic_domain_ops = {
+static const struct irq_domain_ops nuc980_aic_domain_ops = {
 	.map = nuc980_aic_domain_map,
 	.xlate = nuc980_aic_domain_xlate,
 };

@@ -60,7 +60,7 @@ struct nuc980_pinctrl_gpio {
 	struct irq_chip       ic;
 	struct irq_domain     *irq_domain;
 	int                   irq;
-	volatile u32          inten;
+	u32                   inten;
 	u8                    out[16];
 	int                   pin_idx[16];
 	const char            *names[16];
@@ -101,7 +101,7 @@ static int nuc980_pinctrl_gpio_get_value(struct gpio_chip *gc,
 	u32 reg_val;
 
 	reg_val = readl(ngpio->base + REG_PIN);
-	return !!(reg_val & (1 << gpio_idx));
+	return !!(reg_val & BIT(gpio_idx));
 }
 
 static void nuc980_pinctrl_gpio_reg(struct nuc980_pinctrl_gpio *ngpio,
@@ -673,15 +673,15 @@ static struct nuc980_pinctrl_gpio *nuc980_pinctrl_find_gpio_idx(
 					unsigned *gpio_idx)
 {
 	struct nuc980_pinctrl_gpio *ngpio;
-        struct pinctrl_gpio_range *range;
+	struct pinctrl_gpio_range *range;
 	unsigned gpio;
 	int pin;
 	int i;
 
 	pin = npctl->desc.pins[pin_idx].number;
-        range = pinctrl_find_gpio_range_from_pin(npctl->pctl, pin);
+	range = pinctrl_find_gpio_range_from_pin(npctl->pctl, pin);
 
-        if (!range)
+	if (!range)
 		return NULL;
 
 	gpio = range->base + range->pin_base;
@@ -1160,7 +1160,7 @@ static int nuc980_pinctrl_probe(struct platform_device *pdev)
 	}
 
 	dev_info(dev, "found %d gpio banks\n", npctl->nbanks);
-	npctl->ngpio = kcalloc(npctl->nbanks, sizeof(*npctl->ngpio),
+	npctl->ngpio = devm_kcalloc(dev, npctl->nbanks, sizeof(*npctl->ngpio),
 							GFP_KERNEL);
 
 	if (!npctl->ngpio) {
