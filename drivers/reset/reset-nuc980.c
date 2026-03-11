@@ -32,7 +32,7 @@ struct nuc980_reset {
 #define to_nuc980_reset(p)		\
 	container_of((p), struct nuc980_reset, rcdev)
 
-static int nuc980_reset_to_reg(unsigned idx, u32 *reg)
+static int nuc980_reset_to_reg(unsigned long idx, u32 *reg)
 {
 	if (idx < 32)
 		*reg = REG_AHBIPRST;
@@ -207,11 +207,14 @@ static int nuc980_reset_restart_handler(struct notifier_block *nb,
 
 	msleep(1000);
 	ret = nuc980_reset_assert(&nreset->rcdev, 0);
-	mdelay(2000);
-	if (ret)
+	if (ret) {
 		dev_err(nreset->dev, "unable to reset system\n");
+		return NOTIFY_DONE;
+	}
 
-	return ret;
+	mdelay(2000);
+
+	return NOTIFY_DONE;
 }
 
 static int nuc980_reset_probe(struct platform_device *pdev)
@@ -249,8 +252,10 @@ static int nuc980_reset_probe(struct platform_device *pdev)
 	nreset->rcdev.owner            = THIS_MODULE;
 
 	ret = devm_reset_controller_register(dev, &nreset->rcdev);
-	if (ret)
+	if (ret) {
 		dev_err(dev, "unable to register reset controller\n");
+		return ret;
+	}
 
 	nreset->restart_nb.notifier_call = nuc980_reset_restart_handler;
 	nreset->restart_nb.priority = 128;
@@ -261,7 +266,7 @@ static int nuc980_reset_probe(struct platform_device *pdev)
 
 	dev_info(dev, "initialized\n");
 
-	return ret;
+	return 0;
 }
 
 static const struct of_device_id nuc980_reset_dt_ids[] = {
@@ -280,6 +285,6 @@ static struct platform_driver nuc980_reset_driver = {
 
 static int __init nuc980_reset_init(void)
 {
-        return platform_driver_register(&nuc980_reset_driver);
+	return platform_driver_register(&nuc980_reset_driver);
 }
 arch_initcall(nuc980_reset_init);
