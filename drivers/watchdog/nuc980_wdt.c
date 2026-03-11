@@ -148,7 +148,7 @@ static const struct watchdog_info nuc980_wdt_info = {
 	.identity = "nuc980 watchdog",
 };
 
-static struct watchdog_ops nuc980_wdt_ops = {
+static const struct watchdog_ops nuc980_wdt_ops = {
 	.owner = THIS_MODULE,
 	.start = nuc980_wdt_start,
 	.stop = nuc980_wdt_stop,
@@ -221,7 +221,7 @@ static int nuc980_wdt_probe(struct platform_device *pdev)
 	nwdt->base = devm_ioremap_resource(dev, &res);
 	if (IS_ERR(nwdt->base)) {
 		dev_err(dev, "unable to map mem region\n");
-                ret = PTR_ERR(nwdt->base);
+		ret = PTR_ERR(nwdt->base);
 		goto disable_pclk;
 	}
 
@@ -261,7 +261,7 @@ static const struct of_device_id nuc980_wdt_dt_ids[] = {
 	{ .compatible = "nuvoton,nuc980-wdt" },
 	{},
 };
-MODULE_DEVICE_TABLE(of, nuc980_wdt_of_match);
+MODULE_DEVICE_TABLE(of, nuc980_wdt_dt_ids);
 
 static struct platform_driver nuc980_wdt_driver = {
 	.probe		= nuc980_wdt_probe,
@@ -273,6 +273,6 @@ static struct platform_driver nuc980_wdt_driver = {
 
 static int __init nuc980_wdt_init(void)
 {
-        return platform_driver_register(&nuc980_wdt_driver);
+	return platform_driver_register(&nuc980_wdt_driver);
 }
 device_initcall(nuc980_wdt_init);
