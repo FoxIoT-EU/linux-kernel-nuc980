@@ -12,6 +12,7 @@
 #include <linux/clockchips.h>
 #include <linux/init.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
 #include <linux/jiffies.h>
@@ -41,7 +42,6 @@ struct nuc980_timer {
 	void __iomem *base;
 	unsigned     load;
 	struct       clock_event_device clkevt;
-	struct       irqaction act;
 };
 
 static int nuc980_timer_clockevent_shutdown(struct clock_event_device *clkevt)
@@ -85,13 +85,19 @@ static int nuc980_timer_clockevent_setnextevent(unsigned long evt,
 	struct nuc980_timer *timer =
 			container_of(clkevt, struct nuc980_timer, clkevt);
 
+	unsigned int val;
+	int ret;
+
 	writel(0, timer->base + REG_CTL);
 	writel(evt, timer->base + REG_CMPR);
-	while(readl(timer->base + REG_DR) != 0);
+	ret = readl_poll_timeout_atomic(timer->base + REG_DR, val, val == 0,
+					1, 100);
+	if (ret)
+		pr_err("nuc980-timer: timeout waiting for counter reset\n");
 	writel(readl(timer->base + REG_CTL) | CTL_COUNTEN,
 		timer->base + REG_CTL);
 
-	return 0;
+	return ret;
 }
 
 static irqreturn_t nuc980_timer_interrupt(int irq, void *dev_id)
@@ -118,13 +124,13 @@ static int nuc980_timer_clockevent_init(struct device_node *np,
 	int ret;
 
 	eclk_a = of_clk_get_by_name(np, "eclk-a");
-	if (!eclk_a) {
+	if (IS_ERR(eclk_a)) {
 		pr_err("nuc980-timer %s: unable to get clock: eclk-a\n", name);
-		return -EINVAL;
+		return PTR_ERR(eclk_a);
 	}
 
 	pclk_a = of_clk_get_by_name(np, "pclk-a");
-	if (!pclk_a) {
+	if (IS_ERR(pclk_a)) {
 		pr_warn("nuc980-timer %s: unable to get clock: pclk-a\n", name);
 		pclk_a = NULL;
 	}
@@ -201,6 +207,8 @@ free_timer:
 	kfree(ntimer);
 put_reset:
 	reset_control_put(rst_a);
+disable_pclk:
+	clk_disable_unprepare(pclk_a);
 disable_eclk:
 	clk_disable_unprepare(eclk_a);
 put_clocks:
@@ -221,7 +229,6 @@ static int nuc980_timer_clocksource_init(struct device_node *np,
 	struct clk *eclk_b;
 	struct clk *pclk_b;
 	struct reset_control *rst_b;
-	unsigned int rate;
 	int ret;
 
 	eclk_b = of_clk_get_by_name(np, "eclk-b");
@@ -251,8 +258,6 @@ static int nuc980_timer_clocksource_init(struct device_node *np,
 	rst_b = of_reset_control_get_shared(np, "rst-b");
 	if (!IS_ERR(rst_b))
 		reset_control_deassert(rst_b);
-
-	rate = clk_get_rate(eclk_b);
 
 	writel(0x00, base + REG_CTL);
 	writel(0xffffffff, base + REG_CMPR);
@@ -312,16 +317,19 @@ static int __init nuc980_timer_init(struct device_node *np)
 
 	ret = nuc980_timer_clocksource_init(np,
 			base + NUC980_TIMER_REG_SIZE, name);
-
 	if (ret)
-		goto release_mem;
+		goto unmap;
 
-	nuc980_timer_clockevent_init(np, base, name);
+	ret = nuc980_timer_clockevent_init(np, base, name);
+	if (ret)
+		goto unmap;
 
 	pr_info("nuc980-timer %s: initialized\n", name);
 
 	return 0;
 
+unmap:
+	iounmap(base);
 release_mem:
 	release_mem_region(res.start, resource_size(&res));
 	return ret;
