@@ -207,7 +207,6 @@ free_timer:
 	kfree(ntimer);
 put_reset:
 	reset_control_put(rst_a);
-disable_pclk:
 	clk_disable_unprepare(pclk_a);
 disable_eclk:
 	clk_disable_unprepare(eclk_a);
