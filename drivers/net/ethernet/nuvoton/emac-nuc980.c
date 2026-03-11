@@ -255,7 +255,7 @@ static int nuc980_emac_alloc_buffers(struct nuc980_emac *nemac)
 
 		txbd->mode   = TXBD_MODE_PADDING | TXBD_MODE_CRC |
 					TXBD_MODE_TXINTEN;
-		txbd->buffer = (__le32)NULL;
+		txbd->buffer = 0;
 		txbd->sl     = 0x00;
 		txbd->next   = nemac->txbd_phys + offset;
 	}
@@ -454,8 +454,7 @@ static irqreturn_t nuc980_emac_txirq(int irq, void *dev_id)
 		dev_err(dev, "tx bus error\n");
 		writel(0x00, (nemac->base + REG_MIEN));
 		nemac->needs_reset = true;
-        //      napi_schedule(&nemac->napi);
-                return IRQ_HANDLED;
+		return IRQ_HANDLED;
 	}
 
 	txbd = &nemac->txbd[nemac->finish_tx];
@@ -466,7 +465,7 @@ static irqreturn_t nuc980_emac_txirq(int irq, void *dev_id)
 			break;
 
 		dma_unmap_single(dev, txbd->buffer, skb->len, DMA_TO_DEVICE);
-		txbd->buffer = (__le32)NULL;
+		txbd->buffer = 0;
 
 		dev_kfree_skb_irq(skb);
 
@@ -609,7 +608,7 @@ static irqreturn_t nuc980_emac_rxirq(int irq, void *dev_id)
 		dev_err(nemac->dev, "emc rx bus error\n");
 		writel(0x00, (nemac->base + REG_MIEN));
 		nemac->needs_reset = true;
-                napi_schedule(&nemac->napi);
+		napi_schedule(&nemac->napi);
 	} else {
 		if(status & MISTA_RXGD) {
 			writel(readl(nemac->base + REG_MIEN) & ~MIEN_RXINTR,
@@ -869,7 +868,7 @@ static int nuc980_emac_mdio_init(struct nuc980_emac *nemac)
 		dev_err(dev, "mdio: unable to allocate memory\n");
 		ret = -ENOMEM;
 		goto put_node;
-        }
+	}
 
 	nemac->mclk = of_clk_get_by_name(mii_np, "hclk");
 	if (IS_ERR(nemac->mclk)) {
@@ -912,8 +911,8 @@ static int nuc980_emac_mdio_init(struct nuc980_emac *nemac)
 	writel(readl(nemac->base + REG_MCMDR) | MCMDR_ENMDC,
 				nemac->base + REG_MCMDR);
 
-        snprintf(nemac->mii_bus->id, MII_BUS_ID_SIZE, "%s-mdio", dev_name(dev));
-        ret = of_mdiobus_register(nemac->mii_bus, mii_np);
+	snprintf(nemac->mii_bus->id, MII_BUS_ID_SIZE, "%s-mdio", dev_name(dev));
+	ret = of_mdiobus_register(nemac->mii_bus, mii_np);
 	if (ret) {
 		dev_err(dev, "mdio: unable to register mdio bus\n");
 		goto disable_eclk;
@@ -933,8 +932,8 @@ put_clocks:
 	clk_put(nemac->eclk);
 	clk_put(nemac->mclk);
 put_node:
-        of_node_put(mii_np);
-        return ret;
+	of_node_put(mii_np);
+	return ret;
 }
 
 static const struct ethtool_ops nuc980_emac_ethtool_ops = {
@@ -949,7 +948,7 @@ static const struct net_device_ops nuc980_emac_netdev_ops = {
 	.ndo_start_xmit      = nuc980_emac_start_xmit,
 	.ndo_get_stats64     = nuc980_emac_get_stats64,
 	.ndo_set_rx_mode     = nuc980_emac_set_rx_mode,
-	.ndo_do_ioctl        = phy_do_ioctl_running,
+	.ndo_eth_ioctl       = phy_do_ioctl_running,
 	.ndo_validate_addr   = eth_validate_addr,
 	.ndo_set_mac_address = nuc980_emac_set_mac_address,
 };
