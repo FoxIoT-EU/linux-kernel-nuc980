@@ -124,7 +124,7 @@ static void nuc980_sd_dma_write(struct nuc980_sd *nsd, struct mmc_command *cmd)
 
 		sg = &data->sg[i];
 
-		sgbuffer = kmap_atomic(sg_page(sg)) + sg->offset;
+		sgbuffer = kmap_local_page(sg_page(sg)) + sg->offset;
 		amount = min(size, sg->length);
 		size -= amount;
 		{
@@ -133,7 +133,7 @@ static void nuc980_sd_dma_write(struct nuc980_sd *nsd, struct mmc_command *cmd)
 			tmpv += amount;
 			dmabuf = (unsigned *)tmpv;
 		}
-		kunmap_atomic(sgbuffer);
+		kunmap_local(sgbuffer);
 		data->bytes_xfered += amount;
 		if (size == 0)
 			break;
@@ -155,7 +155,7 @@ static void nuc980_sd_dma_read(struct nuc980_sd *nsd, struct mmc_command *cmd)
 
 		sg = &data->sg[i];
 
-		sgbuffer = kmap_atomic(sg_page(sg)) + sg->offset;
+		sgbuffer = kmap_local_page(sg_page(sg)) + sg->offset;
 		amount = min(size, sg->length);
 		size -= amount;
 		{
@@ -165,7 +165,7 @@ static void nuc980_sd_dma_read(struct nuc980_sd *nsd, struct mmc_command *cmd)
 			dmabuf = (unsigned *)tmpv;
 		}
 		flush_dcache_page(sg_page(sg));
-		kunmap_atomic(sgbuffer);
+		kunmap_local(sgbuffer);
 		data->bytes_xfered += amount;
 		if (size == 0)
 			break;
@@ -337,7 +337,7 @@ static irqreturn_t nuc980_sd_irq(int irq, void *dev_id)
 
 	if (isr & SDISR_SDIO0IF) {
 		writel(SDISR_SDIO0IF, nsd->base + REG_SDISR);
-                mmc_signal_sdio_irq(nsd->mmc);
+		mmc_signal_sdio_irq(nsd->mmc);
 	}
 
 	if (isr & SDISR_CD0IF) {
@@ -448,7 +448,7 @@ static int nuc980_sd_probe(struct platform_device *pdev)
 	}
 
 	nsd = mmc_priv(mmc);
-        nsd->mmc = mmc;
+	nsd->mmc = mmc;
 	nsd->dev = dev;
 
 	platform_set_drvdata(pdev, nsd);
@@ -623,6 +623,6 @@ static struct platform_driver nuc980_sd_driver = {
 
 static int __init nuc980_sd_init(void)
 {
-        return platform_driver_register(&nuc980_sd_driver);
+	return platform_driver_register(&nuc980_sd_driver);
 }
 device_initcall(nuc980_sd_init);
