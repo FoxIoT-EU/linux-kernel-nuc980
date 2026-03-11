@@ -22,7 +22,6 @@
 #include <linux/slab.h>
 #include <linux/gpio/consumer.h>
 #include <linux/of.h>
-#include <linux/of_device.h>
 #include <linux/of_irq.h>
 
 struct parport_gpio_ctx {
@@ -320,18 +319,24 @@ static int parport_gpio_attach(struct device *dev,
 	if (!ctx)
 		goto out;
 	ctx->data = gpiod_get_array_optional(dev, "data", GPIOD_OUT_LOW);
-	if (!ctx->data || ctx->data->ndescs != 8) {
+	if (IS_ERR_OR_NULL(ctx->data) || ctx->data->ndescs != 8) {
 		dev_err(dev, "could not get data pins\n");
+		if (IS_ERR(ctx->data))
+			ctx->data = NULL;
 		goto out;
 	}
 	ctx->status = gpiod_get_array_optional(dev, "status", GPIOD_IN);
-	if (!ctx->status || ctx->status->ndescs != 5) {
+	if (IS_ERR_OR_NULL(ctx->status) || ctx->status->ndescs != 5) {
 		dev_err(dev, "could not get status pins\n");
+		if (IS_ERR(ctx->status))
+			ctx->status = NULL;
 		goto out;
 	}
 	ctx->control = gpiod_get_array_optional(dev, "control", GPIOD_OUT_LOW);
-	if (!ctx->control || ctx->control->ndescs != 4) {
+	if (IS_ERR_OR_NULL(ctx->control) || ctx->control->ndescs != 4) {
 		dev_err(dev, "could not get control pins\n");
+		if (IS_ERR(ctx->control))
+			ctx->control = NULL;
 		goto out;
 	}
 	for (i = 0; i < ctx->data->ndescs; i++) {
@@ -365,7 +370,7 @@ out_cansleep:
 	dev_err(dev, "inappropriate gpio pin (can sleep)\n");
 out:
 	parport_gpio_detach(ctx);
-	return -1;
+	return -EINVAL;
 }
 
 static int parport_gpio_probe(struct platform_device *op)
@@ -419,22 +424,19 @@ out_put_port:
 out_detach:
 	parport_gpio_detach(ctx);
 out:
-	return -1;
+	return -ENODEV;
 }
 
-static int parport_gpio_remove(struct platform_device *op)
+static void parport_gpio_remove(struct platform_device *op)
 {
 	struct parport *p = dev_get_drvdata(&op->dev);
-
-	parport_gpio_detach(p->private_data);
-	p->private_data = NULL;
+	struct parport_gpio_ctx *ctx = p->private_data;
 
 	parport_remove_port(p);
-	parport_del_port(p);
+	p->private_data = NULL;
+	parport_put_port(p);
 
-	dev_set_drvdata(&op->dev, NULL);
-
-	return 0;
+	parport_gpio_detach(ctx);
 }
 
 static const struct of_device_id parport_gpio_match[] = {
