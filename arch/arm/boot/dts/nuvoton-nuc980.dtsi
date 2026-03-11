@@ -1,5 +1,7 @@
 /dts-v1/;
 
+#include <dt-bindings/dma/nuc980-pdma.h>
+
 / {
 	compatible = "nuvoton,nuc980";
 	model = "Nuvoton NUC980";
@@ -76,7 +78,7 @@
 			clock-names = "pclk", "eclk";
 			resets = <&reset 0x68 4>;
 			interrupts-extended = <&aic 51 4>;
-			dmas = <&pdma0 20>, <&pdma0 21>;
+			dmas = <&pdma0 NUC980_PDMA_SPI0_TX>, <&pdma0 NUC980_PDMA_SPI0_RX>;
 			dma-names = "tx", "rx";
 			num-chipselects = <1>;
 			// nuvoton,enable-dual;
