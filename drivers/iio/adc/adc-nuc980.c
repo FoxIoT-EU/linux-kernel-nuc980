@@ -217,7 +217,7 @@ static int nuc980_adc_probe(struct platform_device *pdev)
 	nadc->base = devm_ioremap_resource(dev, &res);
 	if (IS_ERR(nadc->base)) {
 		dev_err(dev, "unable to map mem region\n");
-                return PTR_ERR(nadc->base);
+		return PTR_ERR(nadc->base);
 	}
 
 	nadc->vref = devm_regulator_get(&pdev->dev, "vref");
@@ -263,7 +263,7 @@ static int nuc980_adc_probe(struct platform_device *pdev)
 	iio->info = &nuc980_adc_info;
 	iio->num_channels = 8;
 	iio->channels = nuc980_adc_iio_channels;
-	iio->masklength = iio->num_channels - 1;
+	iio->masklength = iio->num_channels;
 
 	init_completion(&nadc->completion);
 	mutex_init(&nadc->reg_lock);
