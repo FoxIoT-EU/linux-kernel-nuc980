@@ -24,20 +24,20 @@
 
 #define REG_INIT            0x000
 #define REG_RWEN            0x004
-#define   RWEN_RWENF        (1 << 16)
+#define   RWEN_RWENF        BIT(16)
 #define REG_TIME            0x00c
 #define REG_CAL             0x010
 #define REG_TIMEFMT         0x014
-#define   TIMEFMT_24HEN     (1 << 0)
+#define   TIMEFMT_24HEN     BIT(0)
 #define REG_WEEKDAY         0x018
 #define REG_TALM            0x01c
 #define REG_CALM            0x020
 #define REG_INTEN           0x028
-#define   INTEN_ALARMINTEN  (1 << 0)
-#define   INTEN_TICKINTEN   (1 << 1)
+#define   INTEN_ALARMINTEN  BIT(0)
+#define   INTEN_TICKINTEN   BIT(1)
 #define REG_INTSTS          0x02c
-#define   INTSTS_ALARMINTEN (1 << 0)
-#define   INTSTS_TICKINTEN  (1 << 1)
+#define   INTSTS_ALARMINTEN BIT(0)
+#define   INTSTS_TICKINTEN  BIT(1)
 #define REG_PWRCTL          0x034
 #define REG_SPR           0x040
 #define NUC980_RTC_REG_SIZE 0x100
@@ -65,7 +65,7 @@ static void nuc980_rtc_reg_write(struct nuc980_rtc *nrtc, int reg, int value)
 	writel(value, nrtc->base + reg);
 
 	// wait rtc register write finish
-	while((readl(nrtc->base + REG_INTSTS) & (1 << 31)) && write_timeout--)
+	while ((readl(nrtc->base + REG_INTSTS) & BIT(31)) && write_timeout--)
 		udelay(1);
 }
 
@@ -240,14 +240,14 @@ static int nuc980_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 		return ret;
 
 	val = bcd.bcd_mday | bcd.bcd_mon | bcd.bcd_year;
-	val |= (1 << 31); // mask alarm week day
+	val |= BIT(31); /* mask alarm week day */
 	nuc980_rtc_reg_write(nrtc, REG_CALM, val);
 
 	val = bcd.bcd_sec | bcd.bcd_min | bcd.bcd_hour;
 	nuc980_rtc_reg_write(nrtc, REG_TALM, val);
 
 	nuc980_rtc_reg_write(nrtc, REG_PWRCTL,
-			readl(nrtc->base + REG_PWRCTL) | (1 << 3));
+			readl(nrtc->base + REG_PWRCTL) | BIT(3));
 
 	return 0;
 }
@@ -290,7 +290,7 @@ static int nuc980_rtc_nvram_write(void *priv, unsigned int offset, void *val,
 	return 0;
 }
 
-static struct rtc_class_ops nuc980_rtc_ops = {
+static const struct rtc_class_ops nuc980_rtc_ops = {
 	.read_time = nuc980_rtc_read_time,
 	.set_time = nuc980_rtc_set_time,
 	.read_alarm = nuc980_rtc_read_alarm,
@@ -348,7 +348,7 @@ static int nuc980_rtc_probe(struct platform_device *pdev)
 	nrtc->base = devm_ioremap_resource(dev, &res);
 	if (IS_ERR(nrtc->base)) {
 		dev_err(dev, "unable to map mem region\n");
-                ret = PTR_ERR(nrtc->base);
+		ret = PTR_ERR(nrtc->base);
 		goto disable_clock;
 	}
 
