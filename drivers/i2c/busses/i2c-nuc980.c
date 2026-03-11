@@ -18,7 +18,6 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/of_device.h>
 #include <linux/of_irq.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
@@ -323,10 +322,8 @@ static int nuc980_i2c_probe(struct platform_device *pdev)
 	int ret;
 
 	ni2c = devm_kzalloc(dev, sizeof(*ni2c), GFP_KERNEL);
-        if (!ni2c) {
-                dev_err(dev, "unable to allocate memory\n");
-                return -ENOMEM;
-        }
+	if (!ni2c)
+		return -ENOMEM;
 
 	platform_set_drvdata(pdev, ni2c);
 	ni2c->dev = dev;
@@ -365,7 +362,7 @@ static int nuc980_i2c_probe(struct platform_device *pdev)
 	ni2c->base = devm_ioremap_resource(dev, &res);
 	if (IS_ERR(ni2c->base)) {
 		dev_err(dev, "unable to map mem region\n");
-                ret = PTR_ERR(ni2c->base);
+		ret = PTR_ERR(ni2c->base);
 		goto disable_clk;
 	}
 
@@ -432,6 +429,6 @@ static struct platform_driver nuc980_i2c_driver = {
 
 static int __init nuc980_i2c_init(void)
 {
-        return platform_driver_register(&nuc980_i2c_driver);
+	return platform_driver_register(&nuc980_i2c_driver);
 }
 device_initcall(nuc980_i2c_init);
