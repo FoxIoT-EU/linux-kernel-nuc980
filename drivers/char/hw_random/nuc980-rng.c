@@ -15,7 +15,6 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/of_device.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 
@@ -65,8 +64,7 @@ static int nuc980_rng_read(struct hwrng *rng, void *data, size_t max, bool wait)
 		data += sizeof(u32);
 		nrng->rng_data_cnt++;
 
-		if (nrng->rng_data_cnt >= 0x4000000)
-		{
+		if (nrng->rng_data_cnt >= 0x4000000) {
 			nrng->rng_data_cnt = 0;
 			writel(jiffies, nrng->base + REG_PRNG_SEED);
 			writel(PRNG_CTL_SEEDRLD, nrng->base + REG_PRNG_CTL);
@@ -87,10 +85,8 @@ static int nuc980_rng_probe(struct platform_device *pdev)
 	int ret;
 
 	nrng = devm_kzalloc(dev, sizeof(*nrng), GFP_KERNEL);
-	if (!nrng) {
-		dev_err(dev, "unable to allocate memory\n");
+	if (!nrng)
 		return -ENOMEM;
-	}
 
 	platform_set_drvdata(pdev, nrng);
 	nrng->dev = dev;
@@ -127,13 +123,13 @@ static int nuc980_rng_probe(struct platform_device *pdev)
 	nrng->base = devm_ioremap_resource(dev, &res);
 	if (IS_ERR(nrng->base)) {
 		dev_err(dev, "unable to map mem region\n");
-                ret = PTR_ERR(nrng->base);
+		ret = PTR_ERR(nrng->base);
 		goto disable_clk;
 	}
 
 	nrng->rng_data_cnt  = 0;
-	nrng->rng.name      = dev_driver_string(dev),
-	nrng->rng.read      = nuc980_rng_read,
+	nrng->rng.name      = dev_driver_string(dev);
+	nrng->rng.read      = nuc980_rng_read;
 	nrng->rng.quality   = 900;
 
 	writel(jiffies, nrng->base + REG_PRNG_SEED);
@@ -170,6 +166,6 @@ static struct platform_driver nuc980_rng_driver = {
 
 static int __init nuc980_rng_init(void)
 {
-        return platform_driver_register(&nuc980_rng_driver);
+	return platform_driver_register(&nuc980_rng_driver);
 }
 device_initcall(nuc980_rng_init);
