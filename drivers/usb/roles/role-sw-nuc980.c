@@ -105,10 +105,8 @@ static int nuc980_role_sw_probe(struct platform_device *pdev)
 	dev_set_name(dev, "regmap.nuc980-role-switch");
 
 	nrl = devm_kzalloc(dev, sizeof(*nrl), GFP_KERNEL);
-	if (!nrl) {
-		dev_err(dev, "unable to allocate memory\n");
+	if (!nrl)
 		return -ENOMEM;
-	}
 
 	platform_set_drvdata(pdev, nrl);
 	nrl->dev = dev;
@@ -127,9 +125,9 @@ static int nuc980_role_sw_probe(struct platform_device *pdev)
 
 	spin_lock_init(&nrl->lock);
 
-	sw_desc.set = nuc980_role_sw_set,
-	sw_desc.get = nuc980_role_sw_get,
-	sw_desc.allow_userspace_control = true,
+	sw_desc.set = nuc980_role_sw_set;
+	sw_desc.get = nuc980_role_sw_get;
+	sw_desc.allow_userspace_control = true;
 	sw_desc.fwnode = software_node_fwnode(&nuc980_role_sw_node);
 	sw_desc.driver_data = nrl;
 
@@ -145,7 +143,7 @@ static int nuc980_role_sw_probe(struct platform_device *pdev)
 	return 0;
 
 put_fwnode:
-	fwnode_handle_put(sw_desc.fwnode);
+	software_node_unregister(&nuc980_role_sw_node);
 	return ret;
 }
 
@@ -165,6 +163,6 @@ static struct platform_driver nuc980_role_sw_driver = {
 
 static int __init nuc980_role_sw_init(void)
 {
-        return platform_driver_register(&nuc980_role_sw_driver);
+	return platform_driver_register(&nuc980_role_sw_driver);
 }
 device_initcall(nuc980_role_sw_init);
