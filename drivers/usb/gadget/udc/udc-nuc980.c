@@ -10,15 +10,12 @@
 #include <linux/clk.h>
 #include <linux/completion.h>
 #include <linux/delay.h>
-#include <linux/gpio/consumer.h>
-#include <linux/gpio.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/of_device.h>
 #include <linux/of_irq.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
@@ -162,8 +159,8 @@ struct nuc980_udc {
 	struct nuc980_ep         ep[NUM_ENDPOINTS];
 	struct usb_ctrlrequest   crq;
 	s32                      sram_data[13][2];
-	volatile void *          dma_vaddr;
-	volatile u32             dma_paddr;
+	void                     *dma_vaddr;
+	dma_addr_t               dma_paddr;
 };
 
 static void nuc980_udc_enable(struct nuc980_udc *nudc)
@@ -266,7 +263,7 @@ static int nuc980_udc_read_packet(struct nuc980_ep *ep, u8 *buf,
 			timeout++;
 		}
 		writel(0x20, nudc->base + REG_BUSINTSTS);
-		memcpy(buf, (void *)nudc->dma_vaddr, cnt);
+		memcpy(buf, nudc->dma_vaddr, cnt);
 		req->req.actual += cnt;
 	}
 
@@ -336,7 +333,7 @@ static int nuc980_udc_write_packet(struct nuc980_ep *ep,
 		if (len == 0) {
 			writel(EP_RSPCTL_ZEROLEN, epreg(ep, REG_EP_RSPCTL));
 		} else {
-			memcpy((void *)nudc->dma_vaddr, buf, len);
+			memcpy(nudc->dma_vaddr, buf, len);
 			writel((readl(nudc->base + REG_DMACTL) & 0xe0) |
 				0x110 | ep->ep_num, nudc->base + REG_DMACTL);
 			writel(0, epreg(ep, REG_EP_INTEN));
@@ -587,11 +584,11 @@ static void nuc980_udc_cep_irq(struct nuc980_udc *nudc, u32 st)
 {
 	struct nuc980_ep *ep = &nudc->ep[0];
 	struct nuc980_request *req;
-	unsigned int volatile timeout;
+	unsigned int timeout;
 	int is_last = 1;
 
 	if (list_empty(&ep->queue))
-		req = 0;
+		req = NULL;
 	else
 		req = list_entry(ep->queue.next, struct nuc980_request, queue);
 
@@ -673,11 +670,11 @@ static void nuc980_udc_cep_irq(struct nuc980_udc *nudc, u32 st)
 	}
 }
 
-void nuc980_udc_ep_irq(struct nuc980_ep *ep, u32 st)
+static void nuc980_udc_ep_irq(struct nuc980_ep *ep, u32 st)
 {
 	struct nuc980_udc *nudc = ep->nudc;
 	struct nuc980_request *req;
-	unsigned int volatile timeout;
+	unsigned int timeout;
 
 	if (list_empty(&ep->queue)) {
 		req = NULL;
@@ -743,7 +740,7 @@ static irqreturn_t nuc980_udc_irq(int irq, void *dev_id)
 
 	stl = readl(nudc->base + REG_GINTSTS) & readl(nudc->base + REG_GINTEN);
 	if (!stl)
-		return IRQ_HANDLED;
+		return IRQ_NONE;
 
 	if (stl & GINTSTS_USBIF) {
 		st = readl(nudc->base + REG_BUSINTSTS) &
@@ -837,7 +834,7 @@ static int nuc980_udc_stop(struct usb_gadget *gadget)
 	struct nuc980_udc *nudc = to_nuc980_udc(gadget);
 	int i;
 
-	nudc->driver = 0;
+	nudc->driver = NULL;
 
 	writel(0, nudc->base + REG_BUSINTEN);
 	writel(0xffff, nudc->base + REG_BUSINTSTS);
@@ -935,8 +932,10 @@ static int nuc980_udc_ep_enable(struct usb_ep *uep,
 
 		sram_addr = nuc980_udc_get_sram_base(nudc, max);
 
-		if (sram_addr < 0)
+		if (sram_addr < 0) {
+			spin_unlock_irqrestore(&nudc->lock, flags);
 			return sram_addr;
+		}
 
 		writel(sram_addr, epreg(ep, REG_EP_BUFSTART));
 		sram_addr = sram_addr + max;
@@ -990,21 +989,24 @@ static int nuc980_udc_ep_enable(struct usb_ep *uep,
 	return 0;
 }
 
-static int nuc980_udc_ep_disable (struct usb_ep *uep)
+static int nuc980_udc_ep_disable(struct usb_ep *uep)
 {
 	struct nuc980_ep *ep;
 	struct nuc980_udc *nudc;
 	unsigned long flags;
 
-	if (!uep || !ep->ep.desc)
+	if (!uep)
 		return -EINVAL;
-	
+
 	ep = container_of(uep, struct nuc980_ep, ep);
+
+	if (!ep->ep.desc)
+		return -EINVAL;
 	nudc = ep->nudc;
 
 	spin_lock_irqsave(&nudc->lock, flags);
 
-	ep->ep.desc = 0;
+	ep->ep.desc = NULL;
 
 	writel(0, epreg(ep, REG_EP_CFG));
 	writel(0, epreg(ep, REG_EP_INTEN));
@@ -1027,16 +1029,14 @@ static struct usb_request *nuc980_udc_alloc_request(struct usb_ep *uep,
 	struct nuc980_request *req;
 
 	if (!uep)
-		return 0;
+		return NULL;
 
 	ep = container_of(uep, struct nuc980_ep, ep);
 	nudc = ep->nudc;
 
-	req = kmalloc(sizeof(*req), mem_flags);
+	req = kzalloc(sizeof(*req), mem_flags);
 	if (!req)
-		return 0;
-
-	memset(req, 0, sizeof(*req));
+		return NULL;
 	INIT_LIST_HEAD(&req->queue);
 
 	return &req->req;
@@ -1108,11 +1108,11 @@ static int nuc980_udc_queue(struct usb_ep *uep, struct usb_request *ureq,
 	if ((ep->ep_num == 0) && (ep->ep_dir))
 		ureq->zero = 1;
 
-	if (req != 0)
+	if (req)
 		list_add_tail(&req->queue, &ep->queue);
 
 	if (ep->index == 0) {
-        	if ((req->req.length != 0) && (nudc->ep0state == EP0_END_XFER)) {
+		if ((req->req.length != 0) && (nudc->ep0state == EP0_END_XFER)) {
 			nudc->ep0state = EP0_IN_DATA_PHASE;
 			writel(0x0a, nudc->base + REG_CEPINTEN);
 		}
@@ -1159,10 +1159,8 @@ static int nuc980_udc_dequeue(struct usb_ep *uep, struct usb_request *ureq)
 	}
 	spin_unlock_irqrestore(&nudc->lock, flags);
 
-	if (ret == 0) {
-		ureq->complete(uep, ureq);
+	if (ret == 0)
 		nuc980_udc_request_done(ep, req, -ECONNRESET);
-	}
 
 	return ret;
 }
@@ -1328,7 +1326,7 @@ static int nuc980_udc_probe(struct platform_device *pdev)
 	nudc->base = devm_ioremap_resource(dev, &res);
 	if (IS_ERR(nudc->base)) {
 		dev_err(dev, "unable to map mem region\n");
-                ret = PTR_ERR(nudc->base);
+		ret = PTR_ERR(nudc->base);
 		goto disable_clk;
 	}
 
@@ -1339,10 +1337,18 @@ static int nuc980_udc_probe(struct platform_device *pdev)
 		goto disable_clk;
 	}
 
-	writel(readl(nudc->base + REG_PHYCTL) | PHYCTL_PHYEN, nudc->base + REG_PHYCTL);
-	do {
+	writel(readl(nudc->base + REG_PHYCTL) | PHYCTL_PHYEN,
+					nudc->base + REG_PHYCTL);
+	for (i = 0; i < USBD_TIMEOUT; i++) {
 		writel(0x20, nudc->base + REG_EP_MPS);
-	}while(readl(nudc->base + REG_EP_MPS) != 0x20);
+		if (readl(nudc->base + REG_EP_MPS) == 0x20)
+			break;
+	}
+	if (i == USBD_TIMEOUT) {
+		dev_err(dev, "USB PHY init timeout\n");
+		ret = -ETIMEDOUT;
+		goto disable_clk;
+	}
 
 	nudc->sram_data[0][0]       = 0;
 	nudc->sram_data[0][1]       = 0x40;
@@ -1395,14 +1401,14 @@ static int nuc980_udc_probe(struct platform_device *pdev)
 			writel(0, nepreg(nudc, REG_EP_BUFSTART, i));
 			writel(0, nepreg(nudc, REG_EP_BUFEND, i));
 		}
-		nep->ep.desc = 0;
+		nep->ep.desc = NULL;
 		INIT_LIST_HEAD(&nep->queue);
 	}
 
 	nudc->gadget.ep0 = &nudc->ep[0].ep;
 	list_del_init(&nudc->ep[0].ep.ep_list);
 	nudc->dma_vaddr = dma_alloc_wc(dev, 512,
-					(u32 *)&nudc->dma_paddr, GFP_KERNEL);
+					&nudc->dma_paddr, GFP_KERNEL);
 
 	ret = devm_request_irq(dev, irq, nuc980_udc_irq, 0,
 					dev_name(dev), nudc);
@@ -1423,7 +1429,7 @@ static int nuc980_udc_probe(struct platform_device *pdev)
 	return 0;
 
 free_dma:
-	dma_free_wc(dev, 512, (void *)nudc->dma_vaddr, nudc->dma_paddr);
+	dma_free_wc(dev, 512, nudc->dma_vaddr, nudc->dma_paddr);
 disable_clk:
 	clk_disable_unprepare(nudc->clk);
 	return ret;
@@ -1445,6 +1451,6 @@ static struct platform_driver nuc980_udc_driver = {
 
 static int __init nuc980_udc_init(void)
 {
-        return platform_driver_register(&nuc980_udc_driver);
+	return platform_driver_register(&nuc980_udc_driver);
 }
 device_initcall(nuc980_udc_init);
