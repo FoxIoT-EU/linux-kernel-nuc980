@@ -128,19 +128,21 @@ static int nuc980_clk_pll_set_rate(struct clk_hw *clk_hw, unsigned long rate,
 	u32 val = readl(pll->reg) & ~0x0fffffff;
 
 	switch (rate) {
-	case 98000000:  /* usbh */
+	case 96000000:  /* 12MHz * 40 / 5 = 96MHz, unused on NUC980 (USB 48MHz
+			 * comes from USB PHY 480MHz/10, not from PLL).
+			 * Likely a leftover from Nuvoton BSP. */
 		val |= 0x8027;
 		break;
-	case 98400000:  /* i2s */
+	case 98400000:  /* i2s: 12MHz * 41 / 5 = 98.4MHz */
 		val |= 0x8028;
 		break;
-	case 169500000: /* i2s */
+	case 169500000: /* i2s: 12MHz * 113 / 8 = 169.5MHz */
 		val |= 0x21f0;
 		break;
-	case 264000000: /* system default, 264MHz */
+	case 264000000: /* system default: 12MHz * 22 = 264MHz */
 		val |= 0x15;
 		break;
-	case 300000000:
+	case 300000000: /* 12MHz * 25 = 300MHz */
 		val |= 0x18;
 		break;
 	default:
@@ -166,11 +168,11 @@ static unsigned long nuc980_clk_pll_recalc_rate(struct clk_hw *clk_hw,
 	if (val == 0x18)
 		return 300000000;
 	if (val == 0x8027)
-		return 98000000;
-        if (val == 0x8028)
+		return 96000000;
+	if (val == 0x8028)
 		return 98400000;
-        if (val == 0x21f0)
-                return 169500000;
+	if (val == 0x21f0)
+		return 169500000;
 
 	return 264000000;
 }
@@ -178,10 +180,26 @@ static unsigned long nuc980_clk_pll_recalc_rate(struct clk_hw *clk_hw,
 static long nuc980_clk_pll_round_rate(struct clk_hw *clk_hw,
 			unsigned long rate, unsigned long *parent_rate)
 {
-        return rate;
+	static const unsigned long supported[] = {
+		96000000, 98400000, 169500000, 264000000, 300000000,
+	};
+	unsigned long best = supported[0];
+	unsigned long best_diff = (rate > best) ? rate - best : best - rate;
+	int i;
+
+	for (i = 1; i < ARRAY_SIZE(supported); i++) {
+		unsigned long diff = (rate > supported[i]) ?
+			rate - supported[i] : supported[i] - rate;
+		if (diff < best_diff) {
+			best = supported[i];
+			best_diff = diff;
+		}
+	}
+
+	return best;
 }
 
-static struct clk_ops nuc980_clk_pll_ops = {
+static const struct clk_ops nuc980_clk_pll_ops = {
 	.enable = nuc980_clk_pll_enable,
 	.disable = nuc980_clk_pll_disable,
 	.recalc_rate = nuc980_clk_pll_recalc_rate,
@@ -610,12 +628,12 @@ static void __init nuc980_clk_setup(struct device_node *np)
 
 	if (of_address_to_resource(np, 0, &res)) {
 		pr_err("%s: unable to get mem region\n", name);
-		return;
+		goto free_nclk;
 	}
 
 	if (!res.start || resource_size(&res) < NUC980_CLK_REG_SIZE) {
 		pr_err("%s: mem region out of range\n", name);
-		return;
+		goto free_nclk;
 	}
 
 	nclk->name = kasprintf(GFP_KERNEL, "%08x.nuc980-clk",
@@ -624,7 +642,7 @@ static void __init nuc980_clk_setup(struct device_node *np)
 
 	if (!request_mem_region(res.start, resource_size(&res), name)) {
 		pr_err("nuc980-clk %s: unable to request mem region\n", name);
-		return;
+		goto free_name;
 	}
 
 	nclk->base = ioremap(res.start, resource_size(&res));
@@ -758,6 +776,11 @@ static void __init nuc980_clk_setup(struct device_node *np)
 
 release_mem:
 	release_mem_region(res.start, resource_size(&res));
+free_name:
+	if (nclk->name != np->full_name)
+		kfree(nclk->name);
+free_nclk:
+	kfree(nclk);
 }
 
 CLK_OF_DECLARE_DRIVER(nuc980_clk, "nuvoton,nuc980-clk", nuc980_clk_setup);
