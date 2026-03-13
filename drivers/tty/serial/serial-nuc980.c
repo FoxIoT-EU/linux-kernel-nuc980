@@ -35,11 +35,14 @@
 #define REG_IER              0x004
 #define   IER_RDA            BIT(0)
 #define   IER_THRE           BIT(1)
+#define   IER_RXTOIEN        BIT(4)
+#define   IER_TOCNTEN        BIT(11)
 #define   IER_ATO_RTS        BIT(12)
 #define   IER_ATO_CTS        BIT(13)
 #define REG_FCR              0x008
 #define   FCR_RFR            BIT(1)
 #define   FCR_TFR            BIT(2)
+#define   FCR_RFITL_8        (0x2 << 4)
 #define REG_LCR              0x00c
 #define   LCR_WLS            0x00000003
 #define   LCR_NSB            BIT(2)
@@ -68,6 +71,7 @@
 #define   ISR_RDA            BIT(0)
 #define   ISR_THRE           BIT(1)
 #define   ISR_MODEM          BIT(2)
+#define   ISR_RXTO           BIT(4)
 #define REG_TOUT             0x020
 #define REG_BAUD             0x024
 #define REG_IRCR             0x028
@@ -233,9 +237,10 @@ static irqreturn_t nuc980_serial_irq(int irq, void *dev_id)
 	isr = readl(nport->base + REG_ISR);
 	fsr = readl(nport->base + REG_FSR);
 
-	if (isr & ISR_RDA) {
+	if (isr & (ISR_RDA | ISR_RXTO)) {
 		if (port->ignore_status_mask & FSR_RX_EMPTY) {
-			writel(readl(nport->base + REG_IER) & ~IER_RDA,
+			writel(readl(nport->base + REG_IER) &
+				~(IER_RDA | IER_RXTOIEN | IER_TOCNTEN),
 						nport->base + REG_IER);
 		} else {
 			nuc980_serial_receive(nport);
@@ -265,9 +270,10 @@ static int nuc980_serial_startup(struct uart_port *port)
 	int ret;
 
 	if (!nport->console)
-		writel((FCR_RFR | FCR_TFR), nport->base + REG_FCR);
+		writel(FCR_RFR | FCR_TFR | FCR_RFITL_8, nport->base + REG_FCR);
 
 	writel(0xffffffff, nport->base + REG_ISR);
+	writel(40, nport->base + REG_TOUT);
 
 	ret = devm_request_irq(dev, nport->irq, nuc980_serial_irq,
 				port->irqflags, dev_name(dev), nport);
@@ -277,7 +283,7 @@ static int nuc980_serial_startup(struct uart_port *port)
 		return ret;
 	}
 
-	writel(IER_RDA, nport->base + REG_IER);
+	writel(IER_RDA | IER_RXTOIEN | IER_TOCNTEN, nport->base + REG_IER);
 
 	return 0;
 }
@@ -416,10 +422,12 @@ static void nuc980_serial_set_termios(struct uart_port *port,
 
 	if (!(termios->c_cflag & CREAD)) {
 		port->ignore_status_mask |= FSR_RX_EMPTY;
-		writel(readl(nport->base + REG_IER) & ~IER_RDA,
+		writel(readl(nport->base + REG_IER) &
+			~(IER_RDA | IER_RXTOIEN | IER_TOCNTEN),
 						nport->base + REG_IER);
 	} else {
-		writel(readl(nport->base + REG_IER) | IER_RDA,
+		writel(readl(nport->base + REG_IER) |
+			(IER_RDA | IER_RXTOIEN | IER_TOCNTEN),
 						nport->base + REG_IER);
 	}
 
@@ -454,7 +462,9 @@ static void nuc980_serial_stop_rx(struct uart_port *port)
 {
 	struct nuc980_serial_port *nport = to_nport(port);
 
-	writel(readl(nport->base + REG_IER) & ~IER_RDA, nport->base + REG_IER);
+	writel(readl(nport->base + REG_IER) &
+			~(IER_RDA | IER_RXTOIEN | IER_TOCNTEN),
+						nport->base + REG_IER);
 }
 
 static unsigned int nuc980_serial_tx_empty(struct uart_port *port)
